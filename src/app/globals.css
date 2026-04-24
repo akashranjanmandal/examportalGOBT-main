@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #FFFFFF;
+  --foreground: #0F172A;
+  --primary: #2563EB;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F8FAFC;
+  --border: #E2E8F0;
+  --muted: #64748B;
+  --font-inter: var(--font-inter);
+  --font-outfit: var(--font-outfit);
+}
+
+* {
+  box-sizing: border-box;
+  border-color: var(--border);
+}
+
+body {
+  font-family: var(--font-inter), sans-serif;
+  background-color: var(--secondary);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+input, textarea, select, button {
+  font-family: inherit;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-outfit), sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Disable text selection in exam mode */
+.exam-mode {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Custom scrollbar - Clean Light Version */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #f1f5f9; }
+::-webkit-scrollbar-thumb { 
+  background: #cbd5e1; 
+  border-radius: 20px;
+  border: 2px solid #f1f5f9;
+}
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Dashboard Card Styles */
+.card-glass {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.5);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+/* Watermark - Transparent Light Mode */
+.watermark {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-30deg);
+  opacity: 0.02;
+  font-size: 80px;
+  font-weight: 900;
+  color: #000;
+  letter-spacing: 8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+@layer utilities {
+  .bg-primary { background-color: var(--primary); }
+  .text-primary { color: var(--primary); }
+  .border-primary { border-color: var(--primary); }
+  
+  .text-muted { color: var(--muted); }
+  
+  .glass-effect {
+    @apply backdrop-blur-md bg-white/70 border border-white/20 shadow-sm;
+  }
+}

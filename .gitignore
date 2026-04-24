@@ -1,0 +1,7 @@
+.next/
+node_modules/
+.env.local
+*.log
+.DS_Store
+seeddb.js
+supabase_schema.sql

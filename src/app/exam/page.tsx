@@ -3,9 +3,10 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import toast from "react-hot-toast";
-import { 
-  Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, 
-  Terminal, Menu, User, Shield, Info, RotateCcw, Box, RefreshCw
+import {
+  Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight,
+  Terminal, Menu, User, Shield, Info, RotateCcw, Box, RefreshCw,
+  Play, ChevronDown, ChevronUp, X as XIcon
 } from "lucide-react";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
@@ -35,6 +36,10 @@ export default function ExamPage() {
   const [mcqAnswers, setMcqAnswers] = useState<Record<string, string[]>>({});
   const [codingAnswers, setCodingAnswers] = useState<Record<string, { code: string; language: Language }>>({});
   const [selectedLang, setSelectedLang] = useState<Language>("python");
+
+  const [runOutput, setRunOutput] = useState<{ stdout: string; stderr: string; exit_code: number; question_id: string } | null>(null);
+  const [running, setRunning] = useState(false);
+  const [showOutput, setShowOutput] = useState(false);
 
   const [timeLeft, setTimeLeft] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -214,6 +219,31 @@ export default function ExamPage() {
 
   const handleCodeChange = (id: string, code: string) => {
     setCodingAnswers(p => ({ ...p, [id]: { code, language: selectedLang } }));
+  };
+
+  const handleRunCode = async (questionId: string, sampleInput: string) => {
+    const t = sessionStorage.getItem("gobt_token") || token;
+    const code = codingAnswers[questionId]?.code || LANGUAGE_STUBS[selectedLang];
+    setRunning(true);
+    setShowOutput(true);
+    setRunOutput(null);
+    try {
+      const res = await fetch("/api/exam/run-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-user-id": t },
+        body: JSON.stringify({ code, language: selectedLang, stdin: sampleInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRunOutput({ stdout: "", stderr: data.error || "Execution failed", exit_code: -1, question_id: questionId });
+      } else {
+        setRunOutput({ ...data, question_id: questionId });
+      }
+    } catch {
+      setRunOutput({ stdout: "", stderr: "Network error — could not reach execution service", exit_code: -1, question_id: questionId });
+    } finally {
+      setRunning(false);
+    }
   };
 
   if (loading) {
@@ -473,8 +503,8 @@ export default function ExamPage() {
                 </div>
 
                 {/* Editor Surface */}
-                <div className="flex-1 flex flex-col bg-white">
-                   <div className="h-14 bg-slate-900 flex items-center justify-between px-6">
+                <div className="flex-1 flex flex-col bg-white overflow-hidden">
+                   <div className="h-14 bg-slate-900 flex items-center justify-between px-6 flex-shrink-0">
                       <div className="flex items-center gap-4">
                          <div className="flex bg-white/5 rounded-lg p-1 border border-white/5">
                             {(["python", "java", "cpp", "javascript"] as Language[]).map(lang => (
@@ -487,35 +517,100 @@ export default function ExamPage() {
                             ))}
                          </div>
                       </div>
-                      <div className="flex gap-3">
-                         <button onClick={() => handleCodeChange(currentCQ.id, LANGUAGE_STUBS[selectedLang])} className="p-2 rounded-lg bg-white/5 text-slate-400 hover:text-white transition-all"><RotateCcw className="w-4 h-4" /></button>
+                      <div className="flex gap-3 items-center">
+                         <button
+                           onClick={() => handleRunCode(currentCQ.id, currentCQ.sample_input || "")}
+                           disabled={running}
+                           title="Run code with sample input"
+                           className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white text-[10px] font-bold uppercase tracking-wider transition-all shadow-md shadow-emerald-500/30">
+                           {running ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                           {running ? "Running..." : "Run Code"}
+                         </button>
+                         <button onClick={() => handleCodeChange(currentCQ.id, LANGUAGE_STUBS[selectedLang])} title="Reset to template" className="p-2 rounded-lg bg-white/5 text-slate-400 hover:text-white transition-all"><RotateCcw className="w-4 h-4" /></button>
                       </div>
                    </div>
-                   <div className="flex-1 relative overflow-hidden">
-                      <MonacoEditor
-                        height="100%"
-                        language={selectedLang === "cpp" ? "cpp" : selectedLang}
-                        theme="vs"
-                        value={codingAnswers[currentCQ.id]?.code || LANGUAGE_STUBS[selectedLang]}
-                        onChange={(v) => handleCodeChange(currentCQ.id, v || "")}
-                        options={{
-                          fontSize: 15,
-                          fontFamily: "JetBrains Mono, Menlo, Courier New",
-                          minimap: { enabled: false },
-                          automaticLayout: true,
-                          lineNumbers: "on",
-                          renderLineHighlight: "all",
-                          scrollbar: { verticalScrollbarSize: 8 },
-                          padding: { top: 20 },
-                        }}
-                      />
-                      <div className="absolute bottom-6 right-6 flex gap-3">
-                         <div className="h-10 px-4 flex items-center bg-white border border-slate-200 rounded-xl shadow-lg transition-all">
-                            <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+
+                   {/* Editor + Output Panel */}
+                   <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+                     <div className="flex-1 relative overflow-hidden min-h-0">
+                       <MonacoEditor
+                         height="100%"
+                         language={selectedLang === "cpp" ? "cpp" : selectedLang}
+                         theme="vs"
+                         value={codingAnswers[currentCQ.id]?.code || LANGUAGE_STUBS[selectedLang]}
+                         onChange={(v) => handleCodeChange(currentCQ.id, v || "")}
+                         options={{
+                           fontSize: 15,
+                           fontFamily: "JetBrains Mono, Menlo, Courier New",
+                           minimap: { enabled: false },
+                           automaticLayout: true,
+                           lineNumbers: "on",
+                           renderLineHighlight: "all",
+                           scrollbar: { verticalScrollbarSize: 8 },
+                           padding: { top: 20 },
+                         }}
+                       />
+                       {!showOutput && (
+                         <div className="absolute bottom-6 right-6 flex gap-3">
+                           <div className="h-10 px-4 flex items-center bg-white border border-slate-200 rounded-xl shadow-lg">
+                             <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
                                <RefreshCw className="w-3 h-3 animate-spin text-blue-600" /> Workspace Synced
-                            </span>
+                             </span>
+                           </div>
                          </div>
-                      </div>
+                       )}
+                     </div>
+
+                     {/* Output Panel */}
+                     {showOutput && (
+                       <div className="h-52 flex-shrink-0 border-t-2 border-slate-200 bg-slate-900 flex flex-col">
+                         <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700 flex-shrink-0">
+                           <div className="flex items-center gap-3">
+                             <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Output</span>
+                             {runOutput && !running && (
+                               <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${runOutput.exit_code === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                                 {runOutput.exit_code === 0 ? 'Success' : `Exit ${runOutput.exit_code}`}
+                               </span>
+                             )}
+                             {runOutput && !running && currentCQ.sample_output && (
+                               <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ml-1 ${runOutput.stdout.trim() === currentCQ.sample_output.trim() ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                                 {runOutput.stdout.trim() === currentCQ.sample_output.trim() ? 'Matches Expected' : 'Output Differs'}
+                               </span>
+                             )}
+                           </div>
+                           <button onClick={() => setShowOutput(false)} className="p-1 rounded text-slate-500 hover:text-white transition-colors">
+                             <XIcon className="w-3.5 h-3.5" />
+                           </button>
+                         </div>
+                         <div className="flex-1 overflow-y-auto p-4 font-mono text-xs">
+                           {running ? (
+                             <div className="flex items-center gap-2 text-slate-400">
+                               <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                               <span>Executing code...</span>
+                             </div>
+                           ) : runOutput ? (
+                             <div className="space-y-3">
+                               {runOutput.stdout && (
+                                 <div>
+                                   <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">stdout</p>
+                                   <pre className="text-emerald-300 whitespace-pre-wrap">{runOutput.stdout}</pre>
+                                 </div>
+                               )}
+                               {runOutput.stderr && (
+                                 <div>
+                                   <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">stderr</p>
+                                   <pre className="text-red-400 whitespace-pre-wrap">{runOutput.stderr}</pre>
+                                 </div>
+                               )}
+                               {!runOutput.stdout && !runOutput.stderr && (
+                                 <span className="text-slate-500">(no output)</span>
+                               )}
+                             </div>
+                           ) : null}
+                         </div>
+                       </div>
+                     )}
                    </div>
                 </div>
              </div>

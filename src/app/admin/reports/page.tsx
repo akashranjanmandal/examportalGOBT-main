@@ -110,6 +110,9 @@ export default function ReportsPage() {
     finally { setActionLoading(false); }
   };
 
+  const mcqAnsweredCount = reviewData?.mcqQuestions?.filter((q: any) =>
+    (reviewData?.submission?.mcq_answers?.[q.id] || []).length > 0
+  ).length ?? 0;
   const mcqCorrectCount = reviewData?.mcqQuestions?.filter((q: any) => {
     const userAns = reviewData?.submission?.mcq_answers?.[q.id] || [];
     const correct = q.correct_answers || [];
@@ -291,17 +294,22 @@ export default function ReportsPage() {
                 <>
                   {/* Score Summary */}
                   <div className="grid grid-cols-4 gap-3">
-                    {[
-                      { label: "MCQ Score", value: `${reviewData.submission.mcq_score ?? 0} pts`, color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20" },
-                      { label: "MCQ Correct", value: `${mcqCorrectCount} / ${mcqTotalCount}`, color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
-                      { label: "Coding Score", value: `${reviewData.submission.coding_score ?? 0} pts`, color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" },
-                      { label: "Tab Violations", value: `${reviewData.submission.users?.tab_switch_count ?? 0}`, color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/20" },
-                    ].map((s, i) => (
-                      <div key={i} className={`${s.bg} border ${s.border} rounded-xl p-4`}>
-                        <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">{s.label}</p>
-                        <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
-                      </div>
-                    ))}
+                    <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+                      <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">MCQ Score</p>
+                      <p className="text-xl font-bold text-blue-400">{reviewData.submission.mcq_score ?? 0} pts</p>
+                    </div>
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+                      <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Answered</p>
+                      <p className="text-xl font-bold text-emerald-400">{mcqAnsweredCount} <span className="text-sm font-medium text-slate-500">/ {mcqTotalCount} assigned</span></p>
+                    </div>
+                    <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4">
+                      <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Correct</p>
+                      <p className="text-xl font-bold text-purple-400">{mcqCorrectCount} <span className="text-sm font-medium text-slate-500">/ {mcqAnsweredCount} answered</span></p>
+                    </div>
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+                      <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Tab Violations</p>
+                      <p className="text-xl font-bold text-red-400">{reviewData.submission.users?.tab_switch_count ?? 0}</p>
+                    </div>
                   </div>
 
                   {/* MCQ Section */}
@@ -311,7 +319,7 @@ export default function ReportsPage() {
                         <BarChart2 className="w-4 h-4 text-blue-400" />
                         <h3 className="text-white font-semibold text-sm">MCQ Responses</h3>
                         <span className="ml-auto text-slate-500 text-xs font-medium">
-                          {mcqCorrectCount} correct out of {mcqTotalCount} questions
+                          {mcqAnsweredCount} answered &bull; {mcqCorrectCount} correct &bull; {mcqTotalCount - mcqAnsweredCount} skipped
                         </span>
                       </div>
                       <div className="space-y-3">

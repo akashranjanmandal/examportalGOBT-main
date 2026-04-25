@@ -71,11 +71,22 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { id, name, email } = await req.json();
+  const { id, name, email, coding_set_number } = await req.json();
+
+  const updates: Record<string, any> = {};
+  if (name !== undefined) updates.name = name;
+  if (email !== undefined) updates.email = email.toLowerCase();
+  if (coding_set_number !== undefined) {
+    const setNum = Number(coding_set_number);
+    if (isNaN(setNum) || setNum < 1 || setNum > 10) {
+      return NextResponse.json({ error: "coding_set_number must be 1–10" }, { status: 400 });
+    }
+    updates.coding_set_number = setNum;
+  }
 
   const { error } = await supabase
     .from("users")
-    .update({ name, email: email?.toLowerCase() })
+    .update(updates)
     .eq("id", id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

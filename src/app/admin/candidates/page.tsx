@@ -70,7 +70,7 @@ export default function CandidatesPage() {
   const [loadingReview, setLoadingReview] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", email: "" });
+  const [editForm, setEditForm] = useState({ name: "", email: "", coding_set_number: "" });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [form, setForm] = useState({ name: "", email: "" });
   const [csvText, setCsvText] = useState("");
@@ -185,13 +185,16 @@ export default function CandidatesPage() {
   const handleUpdate = async (id: string) => {
     setActionLoading(true);
     try {
+      const payload: Record<string, any> = { id, name: editForm.name, email: editForm.email };
+      if (editForm.coding_set_number) payload.coding_set_number = Number(editForm.coding_set_number);
       const res = await fetch("/api/admin/candidates", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ id, ...editForm }),
+        body: JSON.stringify(payload),
       });
+      const data = await res.json();
       if (res.ok) { toast.success("Updated"); setEditingId(null); fetchCandidates(token); }
-      else toast.error("Update failed");
+      else toast.error(data.error || "Update failed");
     } catch { toast.error("Error"); }
     finally { setActionLoading(false); }
   };
@@ -272,6 +275,9 @@ export default function CandidatesPage() {
   );
 
   // Review modal computed values
+  const mcqAnsweredCount = reviewData?.mcqQuestions?.filter((q: any) =>
+    (reviewData?.submission?.mcq_answers?.[q.id] || []).length > 0
+  ).length ?? 0;
   const mcqCorrectCount = reviewData?.mcqQuestions?.filter((q: any) => {
     const userAns = reviewData?.submission?.mcq_answers?.[q.id] || [];
     const correct = q.correct_answers || [];
@@ -498,8 +504,17 @@ export default function CandidatesPage() {
                             className="px-2.5 py-1.5 rounded-md bg-[#0B1524] border border-blue-500/40 text-white text-xs focus:outline-none" />
                           <input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
                             className="px-2.5 py-1.5 rounded-md bg-[#0B1524] border border-blue-500/40 text-slate-300 text-xs focus:outline-none" />
+                          <select
+                            value={editForm.coding_set_number}
+                            onChange={(e) => setEditForm({ ...editForm, coding_set_number: e.target.value })}
+                            className="px-2.5 py-1.5 rounded-md bg-[#0B1524] border border-blue-500/40 text-slate-300 text-xs focus:outline-none">
+                            <option value="">Coding Set (unchanged)</option>
+                            {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
+                              <option key={n} value={n}>Set {n}</option>
+                            ))}
+                          </select>
                           <div className="flex gap-2 mt-0.5">
-                            <button onClick={() => handleUpdate(c.id)} className="text-[10px] font-bold text-blue-400 hover:text-blue-300">Save</button>
+                            <button onClick={() => handleUpdate(c.id)} disabled={actionLoading} className="text-[10px] font-bold text-blue-400 hover:text-blue-300 disabled:opacity-50">Save</button>
                             <button onClick={() => setEditingId(null)} className="text-[10px] font-bold text-slate-500 hover:text-slate-300">Cancel</button>
                           </div>
                         </div>
@@ -540,7 +555,7 @@ export default function CandidatesPage() {
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => { setEditingId(c.id); setEditForm({ name: c.name, email: c.email }); }}
+                          onClick={() => { setEditingId(c.id); setEditForm({ name: c.name, email: c.email, coding_set_number: c.coding_set_number ? String(c.coding_set_number) : "" }); }}
                           title="Edit Candidate"
                           className="p-1.5 rounded-md text-slate-500 hover:text-slate-200 hover:bg-white/5 transition-all">
                           <Edit2 className="w-4 h-4" />
@@ -597,17 +612,22 @@ export default function CandidatesPage() {
                 <>
                   {/* Score Summary */}
                   <div className="grid grid-cols-4 gap-3">
-                    {[
-                      { label: "MCQ Score", value: `${reviewData.submission.mcq_score ?? 0} pts`, color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20" },
-                      { label: "MCQ Correct", value: `${mcqCorrectCount} / ${mcqTotalCount}`, color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
-                      { label: "Coding Score", value: `${reviewData.submission.coding_score ?? 0} pts`, color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" },
-                      { label: "Tab Violations", value: `${reviewData.submission.users?.tab_switch_count ?? 0}`, color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/20" },
-                    ].map((s, i) => (
-                      <div key={i} className={`${s.bg} border ${s.border} rounded-xl p-4`}>
-                        <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">{s.label}</p>
-                        <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
-                      </div>
-                    ))}
+                    <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+                      <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">MCQ Score</p>
+                      <p className="text-xl font-bold text-blue-400">{reviewData.submission.mcq_score ?? 0} pts</p>
+                    </div>
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+                      <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Answered</p>
+                      <p className="text-xl font-bold text-emerald-400">{mcqAnsweredCount} <span className="text-sm font-medium text-slate-500">/ {mcqTotalCount} assigned</span></p>
+                    </div>
+                    <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4">
+                      <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Correct</p>
+                      <p className="text-xl font-bold text-purple-400">{mcqCorrectCount} <span className="text-sm font-medium text-slate-500">/ {mcqAnsweredCount} answered</span></p>
+                    </div>
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+                      <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Tab Violations</p>
+                      <p className="text-xl font-bold text-red-400">{reviewData.submission.users?.tab_switch_count ?? 0}</p>
+                    </div>
                   </div>
 
                   {/* MCQ Section */}
@@ -617,7 +637,7 @@ export default function CandidatesPage() {
                         <BarChart2 className="w-4 h-4 text-blue-400" />
                         <h3 className="text-white font-semibold text-sm">MCQ Responses</h3>
                         <span className="ml-auto text-slate-500 text-xs font-medium">
-                          {mcqCorrectCount} correct out of {mcqTotalCount} questions
+                          {mcqAnsweredCount} answered &bull; {mcqCorrectCount} correct &bull; {mcqTotalCount - mcqAnsweredCount} skipped
                         </span>
                       </div>
                       <div className="space-y-3">

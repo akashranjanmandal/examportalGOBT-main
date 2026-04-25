@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
         .from("questions_mcq")
         .select("id");
 
-      const questionIds = (allQuestions || []).map((q: { id: string }) => q.id);
+      const questionIds = [...new Set((allQuestions || []).map((q: { id: string }) => q.id))];
       const shuffledOrder = await assignMCQOrder(questionIds);
       const codingSetNumber = await assignCodingSet();
 

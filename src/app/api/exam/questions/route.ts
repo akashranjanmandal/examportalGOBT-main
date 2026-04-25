@@ -23,19 +23,26 @@ export async function GET(req: NextRequest) {
       .from("questions_mcq")
       .select("id, question, options, is_multi_select, difficulty, topic, marks");
 
-    let mcqQuestions = allMCQ || [];
+    // Deduplicate by id
+    const seenMcq = new Set<string>();
+    let mcqQuestions = (allMCQ || []).filter((q: { id: string }) => {
+      if (seenMcq.has(q.id)) return false;
+      seenMcq.add(q.id);
+      return true;
+    });
 
     if (user.mcq_set_order && Array.isArray(user.mcq_set_order)) {
       const orderMap = new Map<string, number>(
         user.mcq_set_order.map((id: string, idx: number) => [id, idx] as [string, number])
       );
-      mcqQuestions = mcqQuestions.sort(
-        (a: { id: string }, b: { id: string }) => {
-          const ai: number = orderMap.get(a.id) ?? 999;
-          const bi: number = orderMap.get(b.id) ?? 999;
+      // Only include questions that are in the user's assigned order
+      mcqQuestions = mcqQuestions
+        .filter((q: { id: string }) => orderMap.has(q.id))
+        .sort((a: { id: string }, b: { id: string }) => {
+          const ai = orderMap.get(a.id) ?? 999;
+          const bi = orderMap.get(b.id) ?? 999;
           return ai - bi;
-        }
-      );
+        });
     }
 
     // Take first 30
@@ -58,7 +65,14 @@ export async function GET(req: NextRequest) {
         .eq("set_id", codingSet.id)
         .order("difficulty");
 
-      codingQuestions = (cq || []).slice(0, 3);
+      const seenCoding = new Set<string>();
+      codingQuestions = (cq || [])
+        .filter((q: { id: string }) => {
+          if (seenCoding.has(q.id)) return false;
+          seenCoding.add(q.id);
+          return true;
+        })
+        .slice(0, 3);
     }
 
     return NextResponse.json({

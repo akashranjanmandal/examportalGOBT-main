@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
       const { data: cq } = await supabase
         .from("coding_questions")
         .select(
-          "id, title, description, difficulty, constraints, sample_input, sample_output, time_limit_ms, memory_limit_mb, marks"
+          "id, title, description, difficulty, constraints, sample_input, sample_output, time_limit_ms, memory_limit_mb, marks, test_cases"
         )
         .eq("set_id", codingSet.id)
         .order("difficulty");
@@ -72,7 +72,12 @@ export async function GET(req: NextRequest) {
           seenCoding.add(q.id);
           return true;
         })
-        .slice(0, 3);
+        .slice(0, 3)
+        .map((q: any) => ({
+          ...q,
+          // Only expose non-hidden test cases to candidates
+          test_cases: (q.test_cases || []).filter((tc: any) => !tc.is_hidden),
+        }));
     }
 
     return NextResponse.json({

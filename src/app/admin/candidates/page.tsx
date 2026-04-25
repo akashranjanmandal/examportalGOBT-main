@@ -7,7 +7,7 @@ import {
   Users, LayoutDashboard, FileText, Settings, BarChart3, LogOut,
   Search, Plus, Upload, Download, Trash2, Edit2, CheckCircle,
   XCircle, Eye, X, AlertTriangle, Filter, Key, Mail, Code2,
-  ChevronRight, BarChart2
+  ChevronRight, BarChart2, RefreshCw, ListChecks
 } from "lucide-react";
 
 const SIDEBAR_ITEMS = [
@@ -69,6 +69,8 @@ export default function CandidatesPage() {
   const [reviewData, setReviewData] = useState<any>(null);
   const [loadingReview, setLoadingReview] = useState(false);
 
+  const [codingTestResults, setCodingTestResults] = useState<Record<string, Array<{ index: number; passed: boolean; stdout: string; stderr: string; expected: string; is_hidden: boolean }>>>({});
+  const [runningTestsFor, setRunningTestsFor] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: "", email: "", coding_set_number: "" });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -214,12 +216,32 @@ export default function CandidatesPage() {
     setLoadingReview(true);
     setShowReviewModal(true);
     setReviewData(null);
+    setCodingTestResults({});
     try {
       const res = await fetch(`/api/admin/submissions/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       setReviewData(data);
     } catch { toast.error("Failed to load submission"); setShowReviewModal(false); }
     finally { setLoadingReview(false); }
+  };
+
+  const handleRunCodingTests = async (questionId: string, code: string, language: string) => {
+    if (!code || !language) { toast.error("No code submitted for this question"); return; }
+    setRunningTestsFor(questionId);
+    try {
+      const res = await fetch("/api/admin/run-tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ code, language, question_id: questionId }),
+      });
+      const data = await res.json();
+      if (data.test_results) {
+        setCodingTestResults(prev => ({ ...prev, [questionId]: data.test_results }));
+      } else {
+        toast.error(data.message || "No test cases found for this question");
+      }
+    } catch { toast.error("Failed to run test cases"); }
+    finally { setRunningTestsFor(null); }
   };
 
   const handleVerify = async (candidateId: string, action: "verify" | "reject") => {
@@ -611,24 +633,37 @@ export default function CandidatesPage() {
               ) : reviewData?.submission ? (
                 <>
                   {/* Score Summary */}
-                  <div className="grid grid-cols-4 gap-3">
-                    <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
-                      <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">MCQ Score</p>
-                      <p className="text-xl font-bold text-blue-400">{reviewData.submission.mcq_score ?? 0} pts</p>
-                    </div>
-                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
-                      <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Answered</p>
-                      <p className="text-xl font-bold text-emerald-400">{mcqAnsweredCount} <span className="text-sm font-medium text-slate-500">/ {mcqTotalCount} assigned</span></p>
-                    </div>
-                    <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4">
-                      <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Correct</p>
-                      <p className="text-xl font-bold text-purple-400">{mcqCorrectCount} <span className="text-sm font-medium text-slate-500">/ {mcqAnsweredCount} answered</span></p>
-                    </div>
-                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
-                      <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Tab Violations</p>
-                      <p className="text-xl font-bold text-red-400">{reviewData.submission.users?.tab_switch_count ?? 0}</p>
-                    </div>
-                  </div>
+                  {(() => {
+                    const allTcResults = Object.values(codingTestResults).flat();
+                    const totalTc = allTcResults.length;
+                    const passedTc = allTcResults.filter((r: any) => r.passed).length;
+                    return (
+                      <div className={`grid gap-3 ${totalTc > 0 ? 'grid-cols-5' : 'grid-cols-4'}`}>
+                        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+                          <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">MCQ Score</p>
+                          <p className="text-xl font-bold text-blue-400">{reviewData.submission.mcq_score ?? 0} pts</p>
+                        </div>
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+                          <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Answered</p>
+                          <p className="text-xl font-bold text-emerald-400">{mcqAnsweredCount} <span className="text-sm font-medium text-slate-500">/ {mcqTotalCount}</span></p>
+                        </div>
+                        <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4">
+                          <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Correct</p>
+                          <p className="text-xl font-bold text-purple-400">{mcqCorrectCount} <span className="text-sm font-medium text-slate-500">/ {mcqAnsweredCount}</span></p>
+                        </div>
+                        {totalTc > 0 && (
+                          <div className={`border rounded-xl p-4 ${passedTc === totalTc ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-amber-500/10 border-amber-500/20'}`}>
+                            <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Tests Passed</p>
+                            <p className={`text-xl font-bold ${passedTc === totalTc ? 'text-emerald-400' : 'text-amber-400'}`}>{passedTc} <span className="text-sm font-medium text-slate-500">/ {totalTc}</span></p>
+                          </div>
+                        )}
+                        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+                          <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Tab Violations</p>
+                          <p className="text-xl font-bold text-red-400">{reviewData.submission.users?.tab_switch_count ?? 0}</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* MCQ Section */}
                   {reviewData.mcqQuestions?.length > 0 && (
@@ -695,10 +730,17 @@ export default function CandidatesPage() {
                       <div className="flex items-center gap-2 mb-4">
                         <Code2 className="w-4 h-4 text-amber-400" />
                         <h3 className="text-white font-semibold text-sm">Coding Submissions</h3>
+                        <span className="ml-auto text-slate-500 text-xs font-medium">
+                          {reviewData.codingQuestions.filter((q: any) => reviewData.submission.coding_answers?.[q.id]?.code).length} submitted &bull; {reviewData.codingQuestions.length} assigned
+                        </span>
                       </div>
                       <div className="space-y-4">
                         {reviewData.codingQuestions.map((q: any, i: number) => {
                           const sub = reviewData.submission.coding_answers?.[q.id];
+                          const tcResults = codingTestResults[q.id];
+                          const isRunning = runningTestsFor === q.id;
+                          const totalTests = q.test_cases?.length || 0;
+                          const passedTests = tcResults ? tcResults.filter((r: any) => r.passed).length : null;
                           return (
                             <div key={i} className="rounded-xl border border-[#1B2D47] overflow-hidden">
                               <div className="px-4 py-3 border-b border-[#1B2D47] bg-[#0B1524] flex items-center justify-between">
@@ -706,15 +748,57 @@ export default function CandidatesPage() {
                                   <p className="text-white font-semibold text-sm">{q.title}</p>
                                   <p className="text-slate-500 text-xs mt-0.5 capitalize">{q.difficulty} difficulty &bull; {q.marks} marks</p>
                                 </div>
-                                {sub?.language && (
-                                  <span className="px-2.5 py-1 rounded-md bg-slate-700 text-slate-300 text-[10px] font-bold uppercase tracking-wider">
-                                    {sub.language}
-                                  </span>
-                                )}
+                                <div className="flex items-center gap-2">
+                                  {passedTests !== null && (
+                                    <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold ${passedTests === tcResults!.length ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
+                                      {passedTests}/{tcResults!.length} tests passed
+                                    </span>
+                                  )}
+                                  {sub?.language && (
+                                    <span className="px-2.5 py-1 rounded-md bg-slate-700 text-slate-300 text-[10px] font-bold uppercase tracking-wider">
+                                      {sub.language}
+                                    </span>
+                                  )}
+                                  {sub?.code && totalTests > 0 && (
+                                    <button
+                                      onClick={() => handleRunCodingTests(q.id, sub.code, sub.language)}
+                                      disabled={isRunning || runningTestsFor !== null}
+                                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-400 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50">
+                                      {isRunning ? <RefreshCw className="w-3 h-3 animate-spin" /> : <ListChecks className="w-3 h-3" />}
+                                      {isRunning ? "Running..." : `Run ${totalTests} Tests`}
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                              <pre className="p-4 text-slate-300 font-mono text-xs leading-relaxed overflow-x-auto bg-[#080E1A] min-h-[60px] max-h-64">
+                              <pre className="p-4 text-slate-300 font-mono text-xs leading-relaxed overflow-x-auto bg-[#080E1A] min-h-[60px] max-h-48">
                                 {sub?.code || "// No code submitted"}
                               </pre>
+                              {/* Test Case Results */}
+                              {tcResults && (
+                                <div className="border-t border-[#1B2D47] bg-[#0B1524] p-4">
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-3">Test Case Results</p>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {tcResults.map((result: any, ri: number) => (
+                                      <div key={ri} className={`p-2.5 rounded-lg border text-xs ${result.passed ? 'border-emerald-500/20 bg-emerald-500/[0.06]' : 'border-red-500/20 bg-red-500/[0.06]'}`}>
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                          {result.passed
+                                            ? <CheckCircle className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                                            : <XCircle className="w-3 h-3 text-red-400 flex-shrink-0" />}
+                                          <span className={`font-bold text-[10px] uppercase ${result.passed ? 'text-emerald-400' : 'text-red-400'}`}>
+                                            {result.is_hidden ? "Hidden " : ""}Test {ri + 1}: {result.passed ? "PASSED" : "FAILED"}
+                                          </span>
+                                        </div>
+                                        {!result.passed && (
+                                          <div className="pl-4 space-y-0.5 font-mono text-[10px]">
+                                            {result.stdout && <p className="text-slate-300 truncate">Got: {result.stdout.trim()}</p>}
+                                            <p className="text-slate-500 truncate">Expected: {result.expected.trim()}</p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })}

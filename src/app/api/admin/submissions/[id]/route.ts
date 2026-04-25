@@ -71,7 +71,7 @@ export async function GET(
       if (codingSet) {
         const { data } = await supabase
           .from("coding_questions")
-          .select("id, title, description, difficulty, sample_input, sample_output, marks")
+          .select("id, title, description, difficulty, sample_input, sample_output, marks, test_cases")
           .eq("set_id", codingSet.id);
         codingQuestions = data || [];
       }
@@ -81,7 +81,7 @@ export async function GET(
       if (answeredCodingIds.length > 0) {
         const { data } = await supabase
           .from("coding_questions")
-          .select("id, title, description, difficulty, sample_input, sample_output, marks")
+          .select("id, title, description, difficulty, sample_input, sample_output, marks, test_cases")
           .in("id", answeredCodingIds);
         codingQuestions = data || [];
       }

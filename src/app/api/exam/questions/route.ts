@@ -45,6 +45,15 @@ export async function GET(req: NextRequest) {
         });
     }
 
+    // Deduplicate by question text to eliminate content duplicates with different IDs
+    const seenMcqText = new Set<string>();
+    mcqQuestions = mcqQuestions.filter((q: { question: string }) => {
+      const key = q.question?.trim().toLowerCase();
+      if (!key || seenMcqText.has(key)) return false;
+      seenMcqText.add(key);
+      return true;
+    });
+
     // Take first 30
     mcqQuestions = mcqQuestions.slice(0, 30);
 
@@ -66,17 +75,27 @@ export async function GET(req: NextRequest) {
         .order("difficulty");
 
       const seenCoding = new Set<string>();
+      const seenCodingTitle = new Set<string>();
       codingQuestions = (cq || [])
-        .filter((q: { id: string }) => {
+        .filter((q: { id: string; title: string }) => {
           if (seenCoding.has(q.id)) return false;
+          const titleKey = q.title?.trim().toLowerCase();
+          if (titleKey && seenCodingTitle.has(titleKey)) return false;
           seenCoding.add(q.id);
+          if (titleKey) seenCodingTitle.add(titleKey);
           return true;
         })
         .slice(0, 3)
         .map((q: any) => ({
           ...q,
-          // Only expose non-hidden test cases to candidates
-          test_cases: (q.test_cases || []).filter((tc: any) => !tc.is_hidden),
+          // Normalise field names and strip hidden test cases
+          test_cases: (q.test_cases || [])
+            .filter((tc: any) => !tc.is_hidden)
+            .map((tc: any) => ({
+              input: tc.input ?? "",
+              expected_output: tc.expected_output ?? tc.output ?? "",
+              is_hidden: false,
+            })),
         }));
     }
 

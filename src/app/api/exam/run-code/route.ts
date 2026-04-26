@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { runCode } from "@/lib/codeRunner";
+import { wrapCode } from "@/lib/judge";
 
-const PISTON_LANG: Record<string, string> = {
-  python: "python",
-  javascript: "javascript",
-  java: "java",
-  cpp: "c++",
-};
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,40 +15,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Code and language required" }, { status: 400 });
     }
 
-    const pistonLang = PISTON_LANG[language];
-    if (!pistonLang) {
+    const supported = ["python", "java"];
+    if (!supported.includes(language)) {
       return NextResponse.json({ error: "Unsupported language" }, { status: 400 });
     }
 
-    const runOnce = async (input: string) => {
-      const res = await fetch("https://emkc.org/api/v2/piston/execute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          language: pistonLang,
-          version: "*",
-          files: [{ content: code }],
-          stdin: input || "",
-          run_timeout: 10000,
-          compile_timeout: 15000,
-        }),
-      });
-      if (!res.ok) throw new Error("Execution service unavailable");
-      return res.json();
-    };
+    const wrappedCode = wrapCode(language, code);
 
     // Multi-test-case mode
     if (Array.isArray(test_cases) && test_cases.length > 0) {
       const results = await Promise.all(
-        test_cases.map(async (tc: { input: string; expected_output: string }, idx: number) => {
+        test_cases.map(async (tc: any, idx: number) => {
+          const expectedRaw = tc.expected_output ?? tc.output ?? "";
           try {
-            const data = await runOnce(tc.input);
-            const stdout = data.run?.stdout || "";
-            const stderr = (data.compile?.stderr || "") + (data.run?.stderr || "");
-            const passed = stdout.trim() === (tc.expected_output || "").trim();
-            return { index: idx, passed, stdout, stderr, expected: tc.expected_output };
-          } catch {
-            return { index: idx, passed: false, stdout: "", stderr: "Execution failed", expected: tc.expected_output };
+            const { stdout, stderr } = await runCode(language, wrappedCode, tc.input || "");
+            const actual = stdout.trim().toLowerCase();
+            const expected = String(expectedRaw).trim().toLowerCase();
+            const passed = actual === expected;
+            return { index: idx, passed, stdout, stderr, expected: String(expectedRaw), input: tc.input || "" };
+          } catch (e: any) {
+            return { index: idx, passed: false, stdout: "", stderr: e?.message || "Execution failed", expected: String(expectedRaw), input: tc.input || "" };
           }
         })
       );
@@ -59,20 +42,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Single-run mode
-    const data = await runOnce(stdin || "");
-    const compileStderr = data.compile?.stderr || "";
-    const runStdout = data.run?.stdout || "";
-    const runStderr = data.run?.stderr || "";
-    const exitCode = data.run?.code ?? -1;
+    const { stdout, stderr, exitCode } = await runCode(language, wrappedCode, stdin || "");
+    return NextResponse.json({ stdout, stderr, exit_code: exitCode });
 
-    return NextResponse.json({
-      stdout: runStdout,
-      stderr: compileStderr + runStderr,
-      exit_code: exitCode,
-      version: data.version,
-    });
-  } catch (err) {
-    console.error("Run code error:", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err: any) {
+    const msg = err?.message || "Code execution failed";
+    console.error("Run code error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

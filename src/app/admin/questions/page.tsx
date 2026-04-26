@@ -437,12 +437,14 @@ export default function QuestionsPage() {
                 <div>
                   <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-2">Select Variant</p>
                   <div className="flex gap-1 bg-[#0B1524] p-1 rounded-lg border border-[#1B2D47]">
-                    {[1, 2, 3, 4, 5].map(n => (
-                      <button key={n} onClick={() => setSelectedSet(n)}
-                        className={`w-9 h-9 rounded-md text-xs font-bold transition-all ${
-                          selectedSet === n ? "bg-blue-600 text-white shadow-md shadow-blue-600/20" : "text-slate-400 hover:text-white"
-                        }`}>{n}</button>
-                    ))}
+                    <select 
+                      value={selectedSet} 
+                      onChange={(e) => setSelectedSet(Number(e.target.value))}
+                      className="bg-transparent text-white text-xs font-bold px-3 py-1.5 focus:outline-none w-24">
+                      {Array.from({ length: 100 }, (_, i) => i + 1).map(n => (
+                        <option key={n} value={n} className="bg-[#0B1524]">Set {n}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
                 <div className="w-px h-10 bg-[#1B2D47]" />
@@ -520,8 +522,20 @@ export default function QuestionsPage() {
 
                   <div>
                     <label className={LABEL}>Test Cases (JSON)</label>
+                    <p className="text-[10px] text-slate-400 mb-1">Fields: <code className="bg-slate-100 px-1 rounded">input</code>, <code className="bg-slate-100 px-1 rounded">expected_output</code>, <code className="bg-slate-100 px-1 rounded">is_hidden</code></p>
                     <textarea value={JSON.stringify(codingForm.test_cases, null, 2)}
-                      onChange={(e) => { try { setCodingForm({ ...codingForm, test_cases: JSON.parse(e.target.value) }); } catch {} }}
+                      onChange={(e) => {
+                        try {
+                          const parsed = JSON.parse(e.target.value);
+                          // Normalise: accept both "output" and "expected_output"
+                          const normalised = parsed.map((tc: any) => ({
+                            input: tc.input ?? "",
+                            expected_output: tc.expected_output ?? tc.output ?? "",
+                            is_hidden: tc.is_hidden ?? false,
+                          }));
+                          setCodingForm({ ...codingForm, test_cases: normalised });
+                        } catch {}
+                      }}
                       rows={6}
                       className={INPUT + " font-mono resize-none"} />
                   </div>

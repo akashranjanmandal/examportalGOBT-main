@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Coding score placeholder (evaluated manually or via judge)
+    // Coding score is NOT evaluated here — admin will run tests and approve/reject
     const codingScore = 0;
 
     // Check for existing submission and update or insert

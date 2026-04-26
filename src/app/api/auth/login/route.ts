@@ -71,9 +71,20 @@ export async function POST(req: NextRequest) {
     if (!user.mcq_set_order || !user.coding_set_number) {
       const { data: allQuestions } = await supabase
         .from("questions_mcq")
-        .select("id");
+        .select("id, question");
 
-      const questionIds = [...new Set((allQuestions || []).map((q: { id: string }) => q.id))];
+      // Deduplicate by both ID and question text so no repeated content in assigned order
+      const seenIds = new Set<string>();
+      const seenTexts = new Set<string>();
+      const uniqueQuestions = (allQuestions || []).filter((q: { id: string; question: string }) => {
+        if (seenIds.has(q.id)) return false;
+        const key = q.question?.trim().toLowerCase();
+        if (key && seenTexts.has(key)) return false;
+        seenIds.add(q.id);
+        if (key) seenTexts.add(key);
+        return true;
+      });
+      const questionIds = uniqueQuestions.map((q: { id: string }) => q.id);
       const shuffledOrder = await assignMCQOrder(questionIds);
       const codingSetNumber = await assignCodingSet();
 

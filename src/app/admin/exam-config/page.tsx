@@ -230,7 +230,7 @@ export default function ExamConfigPage() {
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Max Tab Switches</label>
                 <div className="relative">
                   <Shield className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-3.5 h-3.5" />
-                  <input type="number" value={form.max_tab_switches} min={1} max={10}
+                  <input type="number" value={form.max_tab_switches} min={1} max={100}
                     onChange={(e) => setForm({ ...form, max_tab_switches: Number(e.target.value) })}
                     className="w-full pl-9 pr-4 py-2.5 rounded-lg bg-[#0B1524] border border-[#1B2D47] text-white focus:outline-none focus:border-blue-500 text-center font-bold text-sm" />
                 </div>

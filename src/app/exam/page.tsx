@@ -8,17 +8,34 @@ import {
   Terminal, Menu, User, Shield, Info, RotateCcw, Box, RefreshCw,
   Play, ChevronDown, ChevronUp, X as XIcon, ListChecks
 } from "lucide-react";
+import { isCopyPasteEnabled } from "@/lib/security";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
 type Section = "mcq" | "coding";
-type Language = "python" | "java" | "cpp" | "javascript";
+type Language = "python" | "java";
 
 const LANGUAGE_STUBS: Record<Language, string> = {
-  python: `# Write your Python solution here\ndef solution():\n    pass\n`,
-  java: `// Write your Java solution here\nimport java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n        \n    }\n}\n`,
-  cpp: `// Write your C++ solution here\n#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    \n    return 0;\n}\n`,
-  javascript: `// Write your JavaScript solution here\nfunction solution() {\n    \n}\n`,
+  python: `def solve(nums):
+    # nums is the input data (e.g. a list or value)
+    # Write your logic here
+    pass
+`,
+  java: `import java.util.*;
+
+public class Solution {
+    public static void main(String[] args) {
+        // Use Scanner for easy input parsing
+        Scanner sc = new Scanner(System.in);
+        
+        // Example: Reading until end of input
+        // while(sc.hasNext()) { ... }
+        
+        // Write your logic here
+        
+    }
+}
+`,
 };
 
 export default function ExamPage() {
@@ -34,13 +51,13 @@ export default function ExamPage() {
   const [currentCoding, setCurrentCoding] = useState(0);
 
   const [mcqAnswers, setMcqAnswers] = useState<Record<string, string[]>>({});
-  const [codingAnswers, setCodingAnswers] = useState<Record<string, { code: string; language: Language }>>({});
+  const [codingAnswers, setCodingAnswers] = useState<Record<string, { codes: Partial<Record<Language, string>>; selectedLanguage: Language }>>({});
   const [selectedLang, setSelectedLang] = useState<Language>("python");
 
   const [runOutput, setRunOutput] = useState<{ stdout: string; stderr: string; exit_code: number; question_id: string } | null>(null);
   const [running, setRunning] = useState(false);
   const [showOutput, setShowOutput] = useState(false);
-  const [testCaseResults, setTestCaseResults] = useState<Record<string, Array<{ index: number; passed: boolean; stdout: string; stderr: string; expected: string }>>>({});
+  const [testCaseResults, setTestCaseResults] = useState<Record<string, Array<{ index: number; passed: boolean; stdout: string; stderr: string; expected: string; input: string }>>>({});
   const [runningTests, setRunningTests] = useState(false);
   const [outputMode, setOutputMode] = useState<"run" | "tests">("run");
 
@@ -165,11 +182,15 @@ export default function ExamPage() {
       }
     };
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isCopyPasteEnabled()) return;
       if ((e.ctrlKey && ["c", "v", "a", "u", "s", "p"].includes(e.key.toLowerCase())) || e.key === "F12" || (e.ctrlKey && e.shiftKey && ["i", "j", "c"].includes(e.key.toLowerCase())) || (e.metaKey && ["c", "v", "a"].includes(e.key.toLowerCase()))) {
         e.preventDefault(); e.stopPropagation();
       }
     };
-    const handleContextMenu = (e: MouseEvent) => e.preventDefault();
+    const handleContextMenu = (e: MouseEvent) => {
+      if (isCopyPasteEnabled()) return;
+      e.preventDefault();
+    };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("contextmenu", handleContextMenu);
@@ -220,13 +241,20 @@ export default function ExamPage() {
     });
   };
 
-  const handleCodeChange = (id: string, code: string) => {
-    setCodingAnswers(p => ({ ...p, [id]: { code, language: selectedLang } }));
+  const handleCodeChange = (id: string, code: string, lang?: Language) => {
+    const targetLang = lang || selectedLang;
+    setCodingAnswers(p => ({
+      ...p,
+      [id]: {
+        codes: { ...(p[id]?.codes || {}), [targetLang]: code },
+        selectedLanguage: targetLang
+      }
+    }));
   };
 
   const handleRunCode = async (questionId: string, sampleInput: string) => {
     const t = sessionStorage.getItem("gobt_token") || token;
-    const code = codingAnswers[questionId]?.code || LANGUAGE_STUBS[selectedLang];
+    const code = codingAnswers[questionId]?.codes[selectedLang] || LANGUAGE_STUBS[selectedLang];
     setRunning(true);
     setShowOutput(true);
     setRunOutput(null);
@@ -253,7 +281,7 @@ export default function ExamPage() {
   const handleRunTestCases = async (questionId: string, testCases: Array<{ input: string; expected_output: string }>) => {
     if (!testCases.length) return;
     const t = sessionStorage.getItem("gobt_token") || token;
-    const code = codingAnswers[questionId]?.code || LANGUAGE_STUBS[selectedLang];
+    const code = codingAnswers[questionId]?.codes[selectedLang] || LANGUAGE_STUBS[selectedLang];
     setRunningTests(true);
     setShowOutput(true);
     setOutputMode("tests");
@@ -266,9 +294,34 @@ export default function ExamPage() {
       const data = await res.json();
       if (data.test_results) {
         setTestCaseResults(prev => ({ ...prev, [questionId]: data.test_results }));
+      } else {
+        // API returned an error — show it in the panel instead of a blank placeholder
+        const errMsg = data.error || "Execution service unavailable";
+        setTestCaseResults(prev => ({
+          ...prev,
+          [questionId]: testCases.map((tc, idx) => ({
+            index: idx,
+            passed: false,
+            stdout: "",
+            stderr: errMsg,
+            expected: tc.expected_output ?? "",
+            input: tc.input ?? "",
+          })),
+        }));
       }
-    } catch {
-      toast.error("Could not run test cases");
+    } catch (e: any) {
+      const errMsg = e?.message || "Network error — could not reach execution service";
+      setTestCaseResults(prev => ({
+        ...prev,
+        [questionId]: testCases.map((tc, idx) => ({
+          index: idx,
+          passed: false,
+          stdout: "",
+          stderr: errMsg,
+          expected: tc.expected_output ?? "",
+          input: tc.input ?? "",
+        })),
+      }));
     } finally {
       setRunningTests(false);
     }
@@ -433,7 +486,7 @@ export default function ExamPage() {
                    <button key={i} onClick={() => setCurrentCoding(i)}
                      className={`w-full text-left px-4 py-3.5 rounded-xl transition-all border ${
                        i === currentCoding ? "bg-blue-50 border-blue-200 shadow-sm" :
-                       codingAnswers[q.id]?.code ? "border-emerald-100 bg-emerald-50/30" :
+                       codingAnswers[q.id] ? "border-emerald-100 bg-emerald-50/30" :
                        "border-transparent hover:bg-slate-50"
                      }`}>
                      <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${i === currentCoding ? "text-blue-500" : "text-slate-400"}`}>Problem {i + 1}</p>
@@ -535,10 +588,12 @@ export default function ExamPage() {
                    <div className="h-14 bg-slate-900 flex items-center justify-between px-6 flex-shrink-0">
                       <div className="flex items-center gap-4">
                          <div className="flex bg-white/5 rounded-lg p-1 border border-white/5">
-                            {(["python", "java", "cpp", "javascript"] as Language[]).map(lang => (
+                            {(["python", "java"] as Language[]).map(lang => (
                               <button key={lang} onClick={() => {
                                 setSelectedLang(lang);
-                                if (!codingAnswers[currentCQ.id]?.code) handleCodeChange(currentCQ.id, LANGUAGE_STUBS[lang]);
+                                if (!codingAnswers[currentCQ.id]?.codes?.[lang]) {
+                                  handleCodeChange(currentCQ.id, LANGUAGE_STUBS[lang], lang);
+                                }
                               }} className={`px-4 py-1.5 rounded-md text-[9px] font-bold uppercase transition-all ${selectedLang === lang ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white'}`}>
                                 {lang}
                               </button>
@@ -568,44 +623,41 @@ export default function ExamPage() {
                       </div>
                    </div>
 
-                   {/* Editor + Output Panel */}
-                   <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-                     <div className="flex-1 relative overflow-hidden min-h-0">
-                       <MonacoEditor
-                         height="100%"
-                         language={selectedLang === "cpp" ? "cpp" : selectedLang}
-                         theme="vs"
-                         value={codingAnswers[currentCQ.id]?.code || LANGUAGE_STUBS[selectedLang]}
-                         onChange={(v) => handleCodeChange(currentCQ.id, v || "")}
-                         options={{
-                           fontSize: 15,
-                           fontFamily: "JetBrains Mono, Menlo, Courier New",
-                           minimap: { enabled: false },
-                           automaticLayout: true,
-                           lineNumbers: "on",
-                           renderLineHighlight: "all",
-                           scrollbar: { verticalScrollbarSize: 8 },
-                           padding: { top: 20 },
-                         }}
-                       />
-                       {!showOutput && (
-                         <div className="absolute bottom-6 right-6 flex gap-3">
-                           <div className="h-10 px-4 flex items-center bg-white border border-slate-200 rounded-xl shadow-lg">
-                             <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
-                               <RefreshCw className="w-3 h-3 animate-spin text-blue-600" /> Workspace Synced
-                             </span>
-                           </div>
+                   {/* Editor + Output Panel — output overlays the bottom of the editor */}
+                   <div className="flex-1 relative overflow-hidden min-h-0">
+                     <MonacoEditor
+                       height="100%"
+                       language={selectedLang}
+                       theme="vs"
+                       value={codingAnswers[currentCQ.id]?.codes[selectedLang] || LANGUAGE_STUBS[selectedLang]}
+                       onChange={(v) => handleCodeChange(currentCQ.id, v || "")}
+                       options={{
+                         fontSize: 15,
+                         fontFamily: "JetBrains Mono, Menlo, Courier New",
+                         minimap: { enabled: false },
+                         automaticLayout: true,
+                         lineNumbers: "on",
+                         renderLineHighlight: "all",
+                         scrollbar: { verticalScrollbarSize: 8 },
+                         padding: { top: 20, bottom: showOutput ? 272 : 20 },
+                       }}
+                     />
+                     {!showOutput && (
+                       <div className="absolute bottom-6 right-6 flex gap-3">
+                         <div className="h-10 px-4 flex items-center bg-white border border-slate-200 rounded-xl shadow-lg">
+                           <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                             <RefreshCw className="w-3 h-3 animate-spin text-blue-600" /> Workspace Synced
+                           </span>
                          </div>
-                       )}
-                     </div>
+                       </div>
+                     )}
 
-                     {/* Output Panel */}
+                     {/* Output Panel — absolute overlay pinned to the bottom */}
                      {showOutput && (
-                       <div className="h-56 flex-shrink-0 border-t-2 border-slate-200 bg-slate-900 flex flex-col">
+                       <div className="absolute bottom-0 left-0 right-0 h-64 border-t-2 border-slate-600 bg-slate-900 flex flex-col z-20">
                          <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700 flex-shrink-0">
                            <div className="flex items-center gap-3">
                              <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-                             {/* Mode tabs */}
                              <div className="flex bg-white/5 rounded p-0.5">
                                <button onClick={() => setOutputMode("run")} className={`px-2.5 py-0.5 rounded text-[9px] font-bold uppercase transition-all ${outputMode === "run" ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"}`}>Output</button>
                                <button onClick={() => setOutputMode("tests")} className={`px-2.5 py-0.5 rounded text-[9px] font-bold uppercase transition-all ${outputMode === "tests" ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"}`}>Test Cases</button>
@@ -616,18 +668,18 @@ export default function ExamPage() {
                                    {runOutput.exit_code === 0 ? 'Success' : `Exit ${runOutput.exit_code}`}
                                  </span>
                                  {currentCQ.sample_output && (
-                                   <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${runOutput.stdout.trim() === currentCQ.sample_output.trim() ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                                     {runOutput.stdout.trim() === currentCQ.sample_output.trim() ? 'Matches Expected' : 'Output Differs'}
+                                   <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${runOutput.stdout?.trim().toLowerCase() === String(currentCQ.sample_output).trim().toLowerCase() ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                                     {runOutput.stdout?.trim().toLowerCase() === String(currentCQ.sample_output).trim().toLowerCase() ? 'Matches Expected' : 'Output Differs'}
                                    </span>
                                  )}
                                </>
                              )}
                              {outputMode === "tests" && testCaseResults[currentCQ.id] && !runningTests && (() => {
                                const results = testCaseResults[currentCQ.id];
-                               const passed = results.filter(r => r.passed).length;
+                               const passedCount = results.filter(r => r.passed).length;
                                return (
-                                 <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${passed === results.length ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                                   {passed}/{results.length} Passed
+                                 <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${passedCount === results.length ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                                   {passedCount}/{results.length} Passed
                                  </span>
                                );
                              })()}
@@ -653,12 +705,16 @@ export default function ExamPage() {
                                  )}
                                  {runOutput.stderr && (
                                    <div>
-                                     <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">stderr</p>
+                                     <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">stderr / error</p>
                                      <pre className="text-red-400 whitespace-pre-wrap">{runOutput.stderr}</pre>
                                    </div>
                                  )}
                                  {!runOutput.stdout && !runOutput.stderr && (
-                                   <span className="text-slate-500">(no output)</span>
+                                   <span className="text-slate-500">
+                                     {runOutput.exit_code === 0
+                                       ? "Code ran successfully — no output produced. Make sure you call print() / System.out.println() / cout."
+                                       : "No output (non-zero exit code)."}
+                                   </span>
                                  )}
                                </div>
                              ) : null
@@ -669,29 +725,54 @@ export default function ExamPage() {
                                  <span>Running test cases...</span>
                                </div>
                              ) : testCaseResults[currentCQ.id] ? (
-                               <div className="space-y-2">
+                               <div className="space-y-3">
                                  {testCaseResults[currentCQ.id].map((result, i) => (
-                                   <div key={i} className={`p-2 rounded-lg border ${result.passed ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-red-500/30 bg-red-500/10'}`}>
-                                     <div className="flex items-center gap-2">
+                                   <div key={i} className={`rounded-lg border overflow-hidden ${result.passed ? 'border-emerald-500/30' : 'border-red-500/40'}`}>
+                                     {/* Header row */}
+                                     <div className={`flex items-center gap-2 px-3 py-2 ${result.passed ? 'bg-emerald-500/15' : 'bg-red-500/15'}`}>
                                        {result.passed
-                                         ? <CheckCircle className="w-3 h-3 text-emerald-400 flex-shrink-0" />
-                                         : <XCircle className="w-3 h-3 text-red-400 flex-shrink-0" />}
-                                       <span className={`text-[9px] font-bold uppercase ${result.passed ? 'text-emerald-400' : 'text-red-400'}`}>
-                                         Test {i + 1}: {result.passed ? 'PASSED' : 'FAILED'}
+                                         ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                                         : <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />}
+                                       <span className={`text-[10px] font-black uppercase tracking-wider ${result.passed ? 'text-emerald-400' : 'text-red-400'}`}>
+                                         Test Case {i + 1} — {result.passed ? 'PASSED' : 'FAILED'}
                                        </span>
                                      </div>
-                                     {!result.passed && (
-                                       <div className="mt-1 pl-5 space-y-0.5">
-                                         {result.stdout && <pre className="text-[9px] text-slate-300">Got: {result.stdout.trim()}</pre>}
-                                         <pre className="text-[9px] text-slate-500">Expected: {result.expected.trim()}</pre>
-                                         {result.stderr && <pre className="text-[9px] text-red-400">{result.stderr.trim()}</pre>}
+                                     {/* Detail rows */}
+                                      <div className="px-3 py-2 space-y-2 bg-slate-800/50">
+                                        {/* Input — always shown */}
+                                        <div>
+                                          <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">Input</p>
+                                          <pre className="text-[10px] text-slate-300 whitespace-pre-wrap">{String(result.input ?? "").trim() || "(empty)"}</pre>
+                                        </div>
+                                        {/* Your output — always shown */}
+                                       <div>
+                                         <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">Your Output</p>
+                                         {result.stdout ? (
+                                           <pre className={`text-[10px] whitespace-pre-wrap ${result.passed ? 'text-emerald-300' : 'text-amber-300'}`}>{result.stdout.trim()}</pre>
+                                         ) : result.stderr ? (
+                                           <pre className="text-[10px] text-red-400 whitespace-pre-wrap">{result.stderr.trim()}</pre>
+                                         ) : (
+                                           <span className="text-[10px] text-slate-500">Code ran but produced no output — add a print statement.</span>
+                                         )}
                                        </div>
-                                     )}
+                                       {/* Expected — always shown */}
+                                       <div>
+                                         <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">Expected Output</p>
+                                         <pre className="text-[10px] text-slate-300 whitespace-pre-wrap">{(String(result.expected ?? "")).trim() || "(empty)"}</pre>
+                                       </div>
+                                       {/* Show stderr separately only when code produced some stdout AND also had an error */}
+                                       {result.stderr && result.stdout !== "" && (
+                                         <div>
+                                           <p className="text-[9px] font-bold uppercase tracking-wider text-red-500 mb-0.5">Error / Stderr</p>
+                                           <pre className="text-[10px] text-red-400 whitespace-pre-wrap">{result.stderr.trim()}</pre>
+                                         </div>
+                                       )}
+                                     </div>
                                    </div>
                                  ))}
                                </div>
                              ) : (
-                               <span className="text-slate-500">Click &quot;Run Tests&quot; to evaluate your code against test cases</span>
+                               <span className="text-slate-500">Click &quot;Run Tests&quot; to evaluate your code against test cases.</span>
                              )
                            )}
                          </div>

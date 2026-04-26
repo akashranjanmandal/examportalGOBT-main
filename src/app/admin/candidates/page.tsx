@@ -244,16 +244,103 @@ export default function CandidatesPage() {
     finally { setRunningTestsFor(null); }
   };
 
+  const [runningAllTests, setRunningAllTests] = useState(false);
+
+  const handleRunAllCodingTests = async () => {
+    if (!reviewData?.codingQuestions) return;
+    setRunningAllTests(true);
+    const tid = toast.loading("Running all coding tests...");
+    let totalPassed = 0;
+    let totalTests = 0;
+    const freshResults: Record<string, any[]> = {};
+
+    for (const q of reviewData.codingQuestions) {
+      const sub = reviewData.submission.coding_answers?.[q.id];
+      const subCode = sub?.codes?.[sub?.selectedLanguage] || sub?.code;
+      const subLang = sub?.selectedLanguage || sub?.language;
+      if (!subCode || !subLang) continue;
+
+      setRunningTestsFor(q.id);
+      try {
+        const res = await fetch("/api/admin/run-tests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ code: subCode, language: subLang, question_id: q.id }),
+        });
+        const data = await res.json();
+        if (data.test_results) {
+          freshResults[q.id] = data.test_results;
+          const passed = data.test_results.filter((r: any) => r.passed).length;
+          totalPassed += passed;
+          totalTests += data.test_results.length;
+        }
+      } catch { /* continue to next */ }
+      finally { setRunningTestsFor(null); }
+    }
+
+    setCodingTestResults(prev => ({ ...prev, ...freshResults }));
+
+    // Auto-save the new scores to DB
+    if (Object.keys(freshResults).length > 0) {
+      const codingResults: Record<string, any> = {};
+      for (const q of reviewData.codingQuestions) {
+        const results = freshResults[q.id];
+        if (results && results.length > 0) {
+          const passedCount = results.filter((r: any) => r.passed).length;
+          codingResults[q.id] = {
+            test_results: results,
+            passed_count: passedCount,
+            total_tests: results.length,
+            marks: q.marks || 0,
+          };
+        }
+      }
+      try {
+        await fetch("/api/admin/candidates/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ candidateId: reviewData.submission.user_id, action: "score", codingResults }),
+        });
+        // Refresh reviewData to reflect updated scores
+        const updated = await fetch(`/api/admin/submissions/${reviewData.submission.user_id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const updatedData = await updated.json();
+        setReviewData(updatedData);
+      } catch { /* non-fatal */ }
+    }
+
+    toast.success(`All tests complete: ${totalPassed}/${totalTests} passed`, { id: tid });
+    setRunningAllTests(false);
+  };
+
   const handleVerify = async (candidateId: string, action: "verify" | "reject") => {
     setActionLoading(true);
     try {
+      // Build coding results from test runs for scoring
+      const codingResults: Record<string, any> = {};
+      if (reviewData?.codingQuestions && codingTestResults) {
+        for (const q of reviewData.codingQuestions) {
+          const results = codingTestResults[q.id];
+          if (results && results.length > 0) {
+            const passedCount = results.filter((r: any) => r.passed).length;
+            codingResults[q.id] = {
+              test_results: results,
+              passed_count: passedCount,
+              total_tests: results.length,
+              marks: q.marks || 0,
+            };
+          }
+        }
+      }
+
       const res = await fetch("/api/admin/candidates/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ candidateId, action }),
+        body: JSON.stringify({ candidateId, action, codingResults }),
       });
       if (res.ok) {
-        toast.success(action === "verify" ? "Candidate verified" : "Candidate rejected");
+        toast.success(action === "verify" ? "Candidate verified — coding scores saved" : "Candidate rejected");
         setShowReviewModal(false);
         fetchCandidates(token);
       }
@@ -531,7 +618,7 @@ export default function CandidatesPage() {
                             onChange={(e) => setEditForm({ ...editForm, coding_set_number: e.target.value })}
                             className="px-2.5 py-1.5 rounded-md bg-[#0B1524] border border-blue-500/40 text-slate-300 text-xs focus:outline-none">
                             <option value="">Coding Set (unchanged)</option>
-                            {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
+                            {Array.from({ length: 100 }, (_, i) => i + 1).map(n => (
                               <option key={n} value={n}>Set {n}</option>
                             ))}
                           </select>
@@ -637,11 +724,28 @@ export default function CandidatesPage() {
                     const allTcResults = Object.values(codingTestResults).flat();
                     const totalTc = allTcResults.length;
                     const passedTc = allTcResults.filter((r: any) => r.passed).length;
+                    const hasCoding = (reviewData.codingQuestions?.length ?? 0) > 0;
+
+                    // Coding score: prefer fresh test-run calculation, else use saved DB value
+                    let liveCodingScore: number | null = null;
+                    if (totalTc > 0 && reviewData.codingQuestions) {
+                      liveCodingScore = 0;
+                      for (const q of reviewData.codingQuestions) {
+                        const results = codingTestResults[q.id];
+                        if (results && results.length > 0) {
+                          const passed = results.filter((r: any) => r.passed).length;
+                          liveCodingScore += Math.round((passed / results.length) * (q.marks || 0));
+                        }
+                      }
+                    }
+                    const displayedCodingScore = liveCodingScore !== null ? liveCodingScore : (reviewData.submission.coding_score ?? null);
+                    const mcqScore = reviewData.submission.mcq_score ?? 0;
+
                     return (
-                      <div className={`grid gap-3 ${totalTc > 0 ? 'grid-cols-5' : 'grid-cols-4'}`}>
+                      <div className={`grid gap-3 ${hasCoding ? 'grid-cols-5' : 'grid-cols-4'}`}>
                         <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                           <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">MCQ Score</p>
-                          <p className="text-xl font-bold text-blue-400">{reviewData.submission.mcq_score ?? 0} pts</p>
+                          <p className="text-xl font-bold text-blue-400">{mcqScore} pts</p>
                         </div>
                         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
                           <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Answered</p>
@@ -651,10 +755,19 @@ export default function CandidatesPage() {
                           <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Correct</p>
                           <p className="text-xl font-bold text-purple-400">{mcqCorrectCount} <span className="text-sm font-medium text-slate-500">/ {mcqAnsweredCount}</span></p>
                         </div>
-                        {totalTc > 0 && (
-                          <div className={`border rounded-xl p-4 ${passedTc === totalTc ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-amber-500/10 border-amber-500/20'}`}>
-                            <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Tests Passed</p>
-                            <p className={`text-xl font-bold ${passedTc === totalTc ? 'text-emerald-400' : 'text-amber-400'}`}>{passedTc} <span className="text-sm font-medium text-slate-500">/ {totalTc}</span></p>
+                        {hasCoding && (
+                          <div className={`border rounded-xl p-4 ${displayedCodingScore !== null && displayedCodingScore > 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-amber-500/10 border-amber-500/20'}`}>
+                            <p className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mb-1">
+                              Coding Score{liveCodingScore !== null ? ' ★' : ''}
+                            </p>
+                            {displayedCodingScore !== null ? (
+                              <p className={`text-xl font-bold ${displayedCodingScore > 0 ? 'text-emerald-400' : 'text-amber-400'}`}>{displayedCodingScore} pts</p>
+                            ) : (
+                              <p className="text-xl font-bold text-slate-500">—</p>
+                            )}
+                            {totalTc > 0 && (
+                              <p className="text-[10px] text-slate-500 mt-0.5">{passedTc}/{totalTc} tests passed</p>
+                            )}
                           </div>
                         )}
                         <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
@@ -730,23 +843,40 @@ export default function CandidatesPage() {
                       <div className="flex items-center gap-2 mb-4">
                         <Code2 className="w-4 h-4 text-amber-400" />
                         <h3 className="text-white font-semibold text-sm">Coding Submissions</h3>
-                        <span className="ml-auto text-slate-500 text-xs font-medium">
-                          {reviewData.codingQuestions.filter((q: any) => reviewData.submission.coding_answers?.[q.id]?.code).length} submitted &bull; {reviewData.codingQuestions.length} assigned
+                        <span className="text-slate-500 text-xs font-medium">
+                          {reviewData.codingQuestions.filter((q: any) => {
+                            const s = reviewData.submission.coding_answers?.[q.id];
+                            return s?.codes?.[s?.selectedLanguage];
+                          }).length} submitted &bull; {reviewData.codingQuestions.length} assigned
                         </span>
+                        <button
+                          onClick={handleRunAllCodingTests}
+                          disabled={runningAllTests || runningTestsFor !== null}
+                          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50 shadow-lg shadow-blue-600/20">
+                          {runningAllTests ? <RefreshCw className="w-3 h-3 animate-spin" /> : <ListChecks className="w-3 h-3" />}
+                          {runningAllTests ? "Running..." : "Run All Tests"}
+                        </button>
                       </div>
                       <div className="space-y-4">
                         {reviewData.codingQuestions.map((q: any, i: number) => {
                           const sub = reviewData.submission.coding_answers?.[q.id];
-                          const tcResults = codingTestResults[q.id];
+                          const subCode = sub?.codes?.[sub?.selectedLanguage] || sub?.code || null;
+                          const subLang = sub?.selectedLanguage || sub?.language || null;
+                          const savedResults = sub?.test_results;
+                          const tcResults = codingTestResults[q.id] || savedResults;
                           const isRunning = runningTestsFor === q.id;
                           const totalTests = q.test_cases?.length || 0;
                           const passedTests = tcResults ? tcResults.filter((r: any) => r.passed).length : null;
+                          const qScore = sub?.score;
                           return (
                             <div key={i} className="rounded-xl border border-[#1B2D47] overflow-hidden">
                               <div className="px-4 py-3 border-b border-[#1B2D47] bg-[#0B1524] flex items-center justify-between">
                                 <div>
                                   <p className="text-white font-semibold text-sm">{q.title}</p>
-                                  <p className="text-slate-500 text-xs mt-0.5 capitalize">{q.difficulty} difficulty &bull; {q.marks} marks</p>
+                                  <p className="text-slate-500 text-xs mt-0.5 capitalize">
+                                    {q.difficulty} difficulty &bull; {q.marks} marks
+                                    {qScore !== undefined && <span className={`ml-2 font-bold ${qScore > 0 ? 'text-emerald-400' : 'text-red-400'}`}>&bull; Scored {qScore}/{q.marks}</span>}
+                                  </p>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   {passedTests !== null && (
@@ -754,14 +884,14 @@ export default function CandidatesPage() {
                                       {passedTests}/{tcResults!.length} tests passed
                                     </span>
                                   )}
-                                  {sub?.language && (
+                                  {subLang && (
                                     <span className="px-2.5 py-1 rounded-md bg-slate-700 text-slate-300 text-[10px] font-bold uppercase tracking-wider">
-                                      {sub.language}
+                                      {subLang}
                                     </span>
                                   )}
-                                  {sub?.code && totalTests > 0 && (
+                                  {subCode && totalTests > 0 && (
                                     <button
-                                      onClick={() => handleRunCodingTests(q.id, sub.code, sub.language)}
+                                      onClick={() => handleRunCodingTests(q.id, subCode, subLang)}
                                       disabled={isRunning || runningTestsFor !== null}
                                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-400 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50">
                                       {isRunning ? <RefreshCw className="w-3 h-3 animate-spin" /> : <ListChecks className="w-3 h-3" />}
@@ -771,7 +901,7 @@ export default function CandidatesPage() {
                                 </div>
                               </div>
                               <pre className="p-4 text-slate-300 font-mono text-xs leading-relaxed overflow-x-auto bg-[#080E1A] min-h-[60px] max-h-48">
-                                {sub?.code || "// No code submitted"}
+                                {subCode || "// No code submitted"}
                               </pre>
                               {/* Test Case Results */}
                               {tcResults && (
@@ -790,8 +920,8 @@ export default function CandidatesPage() {
                                         </div>
                                         {!result.passed && (
                                           <div className="pl-4 space-y-0.5 font-mono text-[10px]">
-                                            {result.stdout && <p className="text-slate-300 truncate">Got: {result.stdout.trim()}</p>}
-                                            <p className="text-slate-500 truncate">Expected: {result.expected.trim()}</p>
+                                            {result.stdout && <p className="text-slate-300 truncate">Got: {String(result.stdout).trim()}</p>}
+                                            <p className="text-slate-500 truncate">Expected: {String(result.expected ?? "").trim()}</p>
                                           </div>
                                         )}
                                       </div>
@@ -821,31 +951,60 @@ export default function CandidatesPage() {
             </div>
 
             {/* Modal Footer */}
-            {reviewData?.submission && (
-              <div className="px-6 py-4 border-t border-[#1B2D47] flex items-center justify-between flex-shrink-0 bg-[#0D1525]">
-                <div className="flex items-center gap-3 text-xs text-slate-500">
-                  <span>Total Score:</span>
-                  <span className="text-white font-bold text-sm">{reviewData.submission.total_score ?? 0} pts</span>
-                  {reviewData.submission.is_auto_submitted && (
-                    <span className="px-2 py-0.5 rounded border border-amber-500/20 bg-amber-500/10 text-amber-400 text-[10px] font-bold">Auto-Submitted</span>
-                  )}
+            {reviewData?.submission && (() => {
+              const mcqPts = reviewData.submission.mcq_score ?? 0;
+              const hasRunTests = Object.keys(codingTestResults).length > 0;
+              const hasCodingQuestions = (reviewData.codingQuestions?.length ?? 0) > 0;
+
+              // Coding score: fresh run > saved DB > 0
+              let codingPts = 0;
+              if (hasRunTests && reviewData.codingQuestions) {
+                for (const q of reviewData.codingQuestions) {
+                  const results = codingTestResults[q.id];
+                  if (results && results.length > 0) {
+                    const passed = results.filter((r: any) => r.passed).length;
+                    codingPts += Math.round((passed / results.length) * (q.marks || 0));
+                  }
+                }
+              } else {
+                codingPts = reviewData.submission.coding_score ?? 0;
+              }
+
+              const hasSavedCodingScore = (reviewData.submission.coding_score ?? 0) > 0;
+              return (
+                <div className="px-6 py-4 border-t border-[#1B2D47] flex items-center justify-between flex-shrink-0 bg-[#0D1525]">
+                  <div className="flex items-center gap-3 text-xs text-slate-500">
+                    <span>MCQ: <span className="text-blue-400 font-bold">{mcqPts}</span></span>
+                    {hasCodingQuestions && (
+                      <span>Coding: <span className={`font-bold ${hasRunTests ? 'text-emerald-400' : 'text-amber-400'}`}>{codingPts}</span>{hasRunTests && <span className="text-blue-400 ml-1">(updated)</span>}</span>
+                    )}
+                    <span className="text-slate-600">|</span>
+                    <span>Total:</span>
+                    <span className="text-white font-bold text-sm">{mcqPts + codingPts} pts</span>
+                    {reviewData.submission.is_auto_submitted && (
+                      <span className="px-2 py-0.5 rounded border border-amber-500/20 bg-amber-500/10 text-amber-400 text-[10px] font-bold">Auto-Submitted</span>
+                    )}
+                    {hasCodingQuestions && !hasRunTests && !hasSavedCodingScore && (
+                      <span className="px-2 py-0.5 rounded border border-amber-500/20 bg-amber-500/10 text-amber-400 text-[10px] font-bold">⚠ Run tests to score coding</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleVerify(reviewData.submission.user_id, "reject")}
+                      disabled={actionLoading}
+                      className="px-4 py-2 rounded-lg border border-red-500/30 text-red-400 text-xs font-semibold hover:bg-red-500/10 transition-all disabled:opacity-50">
+                      Reject
+                    </button>
+                    <button
+                      onClick={() => handleVerify(reviewData.submission.user_id, "verify")}
+                      disabled={actionLoading}
+                      className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-all disabled:opacity-50 shadow-lg shadow-emerald-600/20">
+                      Verify & Approve
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleVerify(reviewData.submission.user_id, "reject")}
-                    disabled={actionLoading}
-                    className="px-4 py-2 rounded-lg border border-red-500/30 text-red-400 text-xs font-semibold hover:bg-red-500/10 transition-all disabled:opacity-50">
-                    Reject
-                  </button>
-                  <button
-                    onClick={() => handleVerify(reviewData.submission.user_id, "verify")}
-                    disabled={actionLoading}
-                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-all disabled:opacity-50 shadow-lg shadow-emerald-600/20">
-                    Verify & Approve
-                  </button>
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}

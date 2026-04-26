@@ -22,7 +22,7 @@ export async function assignCodingSet(): Promise<number> {
   if (error || !data) return 1;
 
   const currentCounter = data.coding_counter;
-  const setNumber = (currentCounter % 10) + 1;
+  const setNumber = (currentCounter % 100) + 1;
 
   await supabase
     .from("round_robin_counter")

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabase";
 import { runCode } from "@/lib/codeRunner";
+import { runViaPiston } from "@/lib/piston";
 import { wrapCode } from "@/lib/judge";
 
 export const maxDuration = 60;
@@ -45,13 +46,34 @@ export async function POST(req: NextRequest) {
     const results = await Promise.all(
       testCases.map(async (tc, idx) => {
         try {
-          const { stdout, stderr } = await runCode(language, wrappedCode, tc.input || "");
-          const actual = stdout.trim().toLowerCase();
+          let result;
+          if (process.env.PISTON_API_URL) {
+            result = await runViaPiston(language, wrappedCode, tc.input || "");
+          } else {
+            result = await runCode(language, wrappedCode, tc.input || "");
+          }
+          
+          const actual = result.stdout.trim().toLowerCase();
           const expected = String(tc.expected_output ?? "").trim().toLowerCase();
           const passed = actual === expected;
-          return { index: idx, passed, stdout, stderr, expected: tc.expected_output ?? "", is_hidden: tc.is_hidden };
+          
+          return { 
+            index: idx, 
+            passed, 
+            stdout: result.stdout, 
+            stderr: result.stderr, 
+            expected: tc.expected_output ?? "", 
+            is_hidden: tc.is_hidden 
+          };
         } catch (e: any) {
-          return { index: idx, passed: false, stdout: "", stderr: e?.message || "Execution failed", expected: tc.expected_output ?? "", is_hidden: tc.is_hidden };
+          return { 
+            index: idx, 
+            passed: false, 
+            stdout: "", 
+            stderr: e?.message || "Execution failed", 
+            expected: tc.expected_output ?? "", 
+            is_hidden: tc.is_hidden 
+          };
         }
       })
     );

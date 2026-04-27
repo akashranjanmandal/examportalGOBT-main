@@ -63,6 +63,28 @@ export default function ReportsPage() {
 
   const handleLogout = () => { sessionStorage.removeItem("gobt_admin_token"); router.push("/admin"); };
 
+  const handleExportCSV = async () => {
+    const tid = toast.loading("Generating CSV report...");
+    try {
+      const res = await fetch("/api/admin/reports?format=csv", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("Failed to export");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `gobt_exam_report_${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success("Report downloaded", { id: tid });
+    } catch {
+      toast.error("Export failed", { id: tid });
+    }
+  };
+
   useEffect(() => {
     const t = sessionStorage.getItem("gobt_admin_token");
     if (!t) { router.push("/admin"); return; }
@@ -139,13 +161,12 @@ export default function ReportsPage() {
             <h1 className="text-2xl font-bold text-white">Reports & Analytics</h1>
             <p className="text-slate-500 text-sm mt-0.5">{submissions.length} total submissions</p>
           </div>
-          <a
-            href="/api/admin/reports?format=csv"
-            target="_blank"
+          <button
+            onClick={handleExportCSV}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-all shadow-lg shadow-blue-600/20"
           >
             <Download className="w-4 h-4" /> Export CSV
-          </a>
+          </button>
         </div>
 
         {/* Stats Cards */}

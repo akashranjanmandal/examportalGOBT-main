@@ -128,6 +128,28 @@ export default function AdminDashboard() {
     router.push("/admin");
   };
 
+  const handleExportCSV = async () => {
+    const tid = toast.loading("Generating CSV report...");
+    try {
+      const res = await fetch("/api/admin/reports?format=csv", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("Failed to export");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `gobt_exam_report_${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success("Report downloaded", { id: tid });
+    } catch {
+      toast.error("Export failed", { id: tid });
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#080E1A] flex items-center justify-center">
@@ -158,13 +180,12 @@ export default function AdminDashboard() {
             <p className="text-slate-500 text-sm mt-0.5">Live exam monitoring &bull; Auto-syncs every 15s</p>
           </div>
           <div className="flex items-center gap-3">
-            <a
-              href="/api/admin/reports?format=csv"
-              target="_blank"
+            <button
+              onClick={handleExportCSV}
               className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[#1B2D47] bg-[#0F1928] text-slate-300 text-sm font-medium hover:border-slate-500 hover:text-white transition-all"
             >
               <Download className="w-4 h-4" /> Export CSV
-            </a>
+            </button>
             <button
               onClick={() => fetchData(token)}
               disabled={syncing}

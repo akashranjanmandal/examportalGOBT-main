@@ -49,6 +49,7 @@ export async function sendAccessCodeEmail(params: {
   <div class="body">
     <p class="name">Dear ${name},</p>
     <p>You have been selected to appear for the GOBT Developer Assessment. Please find your login details below.</p>
+    <p>Note:<b>Have Python/Java installed in your laptop<b></p>
     <hr class="divider" />
     <div class="field-label">Access Code</div>
     <div class="code-block"><span class="code">${accessCode}</span></div>

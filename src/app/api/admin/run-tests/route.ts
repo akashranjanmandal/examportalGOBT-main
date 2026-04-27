@@ -6,6 +6,11 @@ import { wrapCode } from "@/lib/judge";
 
 export const maxDuration = 60;
 
+function formatInput(input: any): string {
+  if (typeof input === "string") return input;
+  return JSON.stringify(input);
+}
+
 function normalizeOutput(value: any): string {
   if (Array.isArray(value)) {
     const sorted = value
@@ -42,7 +47,7 @@ export async function POST(req: NextRequest) {
 
     const testCases: Array<{ input: string; expected_output: any; is_hidden: boolean }> =
       (question?.test_cases || []).map((tc: any) => ({
-        input: typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input),
+        input: formatInput(tc.input),
         expected_output: tc.expected_output ?? tc.output ?? "",
         is_hidden: tc.is_hidden ?? false,
       }));

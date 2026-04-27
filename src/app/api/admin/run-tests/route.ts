@@ -6,6 +6,16 @@ import { wrapCode } from "@/lib/judge";
 
 export const maxDuration = 60;
 
+function normalizeOutput(value: any): string {
+  if (Array.isArray(value)) {
+    const sorted = value
+      .map((item) => (Array.isArray(item) ? [...item].sort() : item))
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    return JSON.stringify(sorted);
+  }
+  return JSON.stringify(value);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get("Authorization");
@@ -59,11 +69,11 @@ export async function POST(req: NextRequest) {
             ? expectedRaw.trim()
             : JSON.stringify(expectedRaw);
 
-          // Normalize JSON for comparison (handles spacing differences)
+          // Normalize JSON for comparison (handles spacing and ordering differences)
           let passed = actual === expectedStr;
           if (!passed) {
             try {
-              passed = JSON.stringify(JSON.parse(actual)) === JSON.stringify(JSON.parse(expectedStr));
+              passed = normalizeOutput(JSON.parse(actual)) === normalizeOutput(JSON.parse(expectedStr));
             } catch {}
           }
           

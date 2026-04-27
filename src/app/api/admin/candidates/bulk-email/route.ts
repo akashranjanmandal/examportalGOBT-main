@@ -29,7 +29,8 @@ export async function POST(req: NextRequest) {
     errors: [] as string[]
   };
 
-  for (const user of users) {
+  // Parallelize email sending for speed and to avoid 504 timeouts
+  const emailPromises = users.map(async (user) => {
     try {
       if (type === "access_code") {
         await sendAccessCodeEmail({
@@ -49,13 +50,10 @@ export async function POST(req: NextRequest) {
         });
       } else if (type === "result") {
         if (!user.status || user.status === "in_progress") {
-          results.failed++;
-          results.errors.push(`${user.email}: Status must be verified, rejected or submitted`);
-          continue;
+          return { success: false, error: `${user.email}: Status must be verified, rejected or submitted` };
         }
         
         let targetStatus = user.status;
-        // If they were just 'submitted', promote them to 'verified' automatically
         if (user.status === "submitted") {
           await supabase.from("users").update({ status: "verified" }).eq("id", user.id);
           targetStatus = "verified";
@@ -68,19 +66,28 @@ export async function POST(req: NextRequest) {
           marks: user.submissions?.[0]?.total_score,
         });
       }
-      
-      results.success++;
-      
-      // results.success is already incremented above
-      // If we had a working column, we would update it here:
-      // await supabase.from("users").update({ last_email_sent_at: new Date().toISOString() }).eq("id", user.id);
-      
+      return { success: true };
     } catch (e: any) {
       console.error(`Bulk email failed for ${user.email}:`, e);
-      results.failed++;
-      results.errors.push(`${user.email}: ${e.message}`);
+      return { success: false, error: `${user.email}: ${e.message}` };
     }
-  }
+  });
+
+  const mailResults = await Promise.allSettled(emailPromises);
+  
+  mailResults.forEach((res) => {
+    if (res.status === 'fulfilled') {
+      if (res.value.success) {
+        results.success++;
+      } else {
+        results.failed++;
+        results.errors.push(res.value.error!);
+      }
+    } else {
+      results.failed++;
+      results.errors.push("Unknown fatal error during processing");
+    }
+  });
 
   return NextResponse.json({ 
     success: true, 

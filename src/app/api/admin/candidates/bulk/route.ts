@@ -27,38 +27,52 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Candidates array or CSV data required" }, { status: 400 });
   }
 
-  const results = [];
-  const errors = [];
-
-  for (const c of candidateList) {
+  // Parallelize DB insertions for speed
+  const processResults = await Promise.all(candidateList.map(async (c) => {
     const access_code = generateAccessCode();
-    const { data: user, error } = await supabase
-      .from("users")
-      .insert({ name: c.name, email: c.email.toLowerCase(), access_code })
-      .select()
-      .single();
-
-    if (error) {
-      errors.push({ email: c.email, error: error.message });
-      continue;
-    }
-
     try {
-      await sendAccessCodeEmail({
-        to: c.email,
-        name: c.name,
-        accessCode: access_code,
+      const { data: user, error } = await supabase
+        .from("users")
+        .insert({ 
+          name: c.name, 
+          email: c.email.toLowerCase().trim(), 
+          access_code 
+        })
+        .select()
+        .single();
+
+      if (error) {
+        return { success: false, email: c.email, error: error.message };
+      }
+      return { success: true, user, access_code };
+    } catch (e: any) {
+      return { success: false, email: c.email, error: e.message };
+    }
+  }));
+
+  const successful = processResults.filter((r): r is { success: true, user: any, access_code: string } => r.success);
+  const errors = processResults.filter((r): r is { success: false, email: string, error: string } => !r.success).map(r => ({ email: r.email, error: r.error }));
+
+  // Parallelize Emails - using allSettled so one failure doesn't stop others
+  // We don't strictly await this if we want to be ultra-fast, but 
+  // for 60-100 emails, Promise.allSettled is usually fast enough (~2-5s total)
+  if (successful.length > 0) {
+    await Promise.allSettled(successful.map(res => 
+      sendAccessCodeEmail({
+        to: res.user.email,
+        name: res.user.name,
+        accessCode: res.access_code,
         examDate: exam_date || "To be announced",
         examTime: exam_time || "To be announced",
         duration: duration || "80 minutes",
-      });
-    } catch (e) {
-      console.error(`Email failed for ${c.email}:`, e);
-    }
-
-    results.push({ ...user, access_code });
+      })
+    ));
   }
 
-  return NextResponse.json({ success: true, added: results.length, errors });
+  return NextResponse.json({ 
+    success: true, 
+    added: successful.length, 
+    errors 
+  });
 }
 

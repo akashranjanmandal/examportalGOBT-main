@@ -57,9 +57,6 @@ export default function ExamPage() {
   const [runOutput, setRunOutput] = useState<{ stdout: string; stderr: string; exit_code: number; question_id: string } | null>(null);
   const [running, setRunning] = useState(false);
   const [showOutput, setShowOutput] = useState(false);
-  const [testCaseResults, setTestCaseResults] = useState<Record<string, Array<{ index: number; passed: boolean; stdout: string; stderr: string; expected: string; input: string }>>>({});
-  const [runningTests, setRunningTests] = useState(false);
-  const [outputMode, setOutputMode] = useState<"run" | "tests">("run");
 
   const [timeLeft, setTimeLeft] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -258,7 +255,6 @@ export default function ExamPage() {
     setRunning(true);
     setShowOutput(true);
     setRunOutput(null);
-    setOutputMode("run");
     try {
       const res = await fetch("/api/exam/run-code", {
         method: "POST",
@@ -278,54 +274,7 @@ export default function ExamPage() {
     }
   };
 
-  const handleRunTestCases = async (questionId: string, testCases: Array<{ input: string; expected_output: string }>) => {
-    if (!testCases.length) return;
-    const t = sessionStorage.getItem("gobt_token") || token;
-    const code = codingAnswers[questionId]?.codes[selectedLang] || LANGUAGE_STUBS[selectedLang];
-    setRunningTests(true);
-    setShowOutput(true);
-    setOutputMode("tests");
-    try {
-      const res = await fetch("/api/exam/run-code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": t },
-        body: JSON.stringify({ code, language: selectedLang, test_cases: testCases }),
-      });
-      const data = await res.json();
-      if (data.test_results) {
-        setTestCaseResults(prev => ({ ...prev, [questionId]: data.test_results }));
-      } else {
-        // API returned an error — show it in the panel instead of a blank placeholder
-        const errMsg = data.error || "Execution service unavailable";
-        setTestCaseResults(prev => ({
-          ...prev,
-          [questionId]: testCases.map((tc, idx) => ({
-            index: idx,
-            passed: false,
-            stdout: "",
-            stderr: errMsg,
-            expected: tc.expected_output ?? "",
-            input: tc.input ?? "",
-          })),
-        }));
-      }
-    } catch (e: any) {
-      const errMsg = e?.message || "Network error — could not reach execution service";
-      setTestCaseResults(prev => ({
-        ...prev,
-        [questionId]: testCases.map((tc, idx) => ({
-          index: idx,
-          passed: false,
-          stdout: "",
-          stderr: errMsg,
-          expected: tc.expected_output ?? "",
-          input: tc.input ?? "",
-        })),
-      }));
-    } finally {
-      setRunningTests(false);
-    }
-  };
+
 
   if (loading) {
     return (
@@ -603,22 +552,13 @@ export default function ExamPage() {
                       <div className="flex gap-3 items-center">
                          <button
                            onClick={() => handleRunCode(currentCQ.id, currentCQ.sample_input || "")}
-                           disabled={running || runningTests}
+                           disabled={running}
                            title="Run code with sample input"
                            className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white text-[10px] font-bold uppercase tracking-wider transition-all shadow-md shadow-emerald-500/30">
                            {running ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
                            {running ? "Running..." : "Run Code"}
                          </button>
-                         {(currentCQ.test_cases?.length > 0) && (
-                           <button
-                             onClick={() => handleRunTestCases(currentCQ.id, currentCQ.test_cases)}
-                             disabled={running || runningTests}
-                             title="Run all test cases"
-                             className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-white text-[10px] font-bold uppercase tracking-wider transition-all shadow-md shadow-blue-500/30">
-                             {runningTests ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ListChecks className="w-3.5 h-3.5" />}
-                             {runningTests ? "Testing..." : `Run Tests (${currentCQ.test_cases.length})`}
-                           </button>
-                         )}
+                         
                          <button onClick={() => handleCodeChange(currentCQ.id, LANGUAGE_STUBS[selectedLang])} title="Reset to template" className="p-2 rounded-lg bg-white/5 text-slate-400 hover:text-white transition-all"><RotateCcw className="w-4 h-4" /></button>
                       </div>
                    </div>
@@ -658,11 +598,8 @@ export default function ExamPage() {
                          <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700 flex-shrink-0">
                            <div className="flex items-center gap-3">
                              <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-                             <div className="flex bg-white/5 rounded p-0.5">
-                               <button onClick={() => setOutputMode("run")} className={`px-2.5 py-0.5 rounded text-[9px] font-bold uppercase transition-all ${outputMode === "run" ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"}`}>Output</button>
-                               <button onClick={() => setOutputMode("tests")} className={`px-2.5 py-0.5 rounded text-[9px] font-bold uppercase transition-all ${outputMode === "tests" ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"}`}>Test Cases</button>
-                             </div>
-                             {outputMode === "run" && runOutput && !running && (
+                             <span className="text-[9px] font-bold uppercase tracking-wider text-white">Output</span>
+                             {runOutput && !running && (
                                <>
                                  <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${runOutput.exit_code === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
                                    {runOutput.exit_code === 0 ? 'Success' : `Exit ${runOutput.exit_code}`}
@@ -674,23 +611,14 @@ export default function ExamPage() {
                                  )}
                                </>
                              )}
-                             {outputMode === "tests" && testCaseResults[currentCQ.id] && !runningTests && (() => {
-                               const results = testCaseResults[currentCQ.id];
-                               const passedCount = results.filter(r => r.passed).length;
-                               return (
-                                 <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${passedCount === results.length ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                                   {passedCount}/{results.length} Passed
-                                 </span>
-                               );
-                             })()}
+                             
                            </div>
                            <button onClick={() => setShowOutput(false)} className="p-1 rounded text-slate-500 hover:text-white transition-colors">
                              <XIcon className="w-3.5 h-3.5" />
                            </button>
                          </div>
                          <div className="flex-1 overflow-y-auto p-4 font-mono text-xs">
-                           {outputMode === "run" ? (
-                             running ? (
+                           {running ? (
                                <div className="flex items-center gap-2 text-slate-400">
                                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
                                  <span>Executing code...</span>
@@ -717,64 +645,7 @@ export default function ExamPage() {
                                    </span>
                                  )}
                                </div>
-                             ) : null
-                           ) : (
-                             runningTests ? (
-                               <div className="flex items-center gap-2 text-slate-400">
-                                 <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-400" />
-                                 <span>Running test cases...</span>
-                               </div>
-                             ) : testCaseResults[currentCQ.id] ? (
-                               <div className="space-y-3">
-                                 {testCaseResults[currentCQ.id].map((result, i) => (
-                                   <div key={i} className={`rounded-lg border overflow-hidden ${result.passed ? 'border-emerald-500/30' : 'border-red-500/40'}`}>
-                                     {/* Header row */}
-                                     <div className={`flex items-center gap-2 px-3 py-2 ${result.passed ? 'bg-emerald-500/15' : 'bg-red-500/15'}`}>
-                                       {result.passed
-                                         ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                                         : <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />}
-                                       <span className={`text-[10px] font-black uppercase tracking-wider ${result.passed ? 'text-emerald-400' : 'text-red-400'}`}>
-                                         Test Case {i + 1} — {result.passed ? 'PASSED' : 'FAILED'}
-                                       </span>
-                                     </div>
-                                     {/* Detail rows */}
-                                      <div className="px-3 py-2 space-y-2 bg-slate-800/50">
-                                        {/* Input — always shown */}
-                                        <div>
-                                          <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">Input</p>
-                                          <pre className="text-[10px] text-slate-300 whitespace-pre-wrap">{String(result.input ?? "").trim() || "(empty)"}</pre>
-                                        </div>
-                                        {/* Your output — always shown */}
-                                       <div>
-                                         <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">Your Output</p>
-                                         {result.stdout ? (
-                                           <pre className={`text-[10px] whitespace-pre-wrap ${result.passed ? 'text-emerald-300' : 'text-amber-300'}`}>{result.stdout.trim()}</pre>
-                                         ) : result.stderr ? (
-                                           <pre className="text-[10px] text-red-400 whitespace-pre-wrap">{result.stderr.trim()}</pre>
-                                         ) : (
-                                           <span className="text-[10px] text-slate-500">Code ran but produced no output — add a print statement.</span>
-                                         )}
-                                       </div>
-                                       {/* Expected — always shown */}
-                                       <div>
-                                         <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">Expected Output</p>
-                                         <pre className="text-[10px] text-slate-300 whitespace-pre-wrap">{(String(result.expected ?? "")).trim() || "(empty)"}</pre>
-                                       </div>
-                                       {/* Show stderr separately only when code produced some stdout AND also had an error */}
-                                       {result.stderr && result.stdout !== "" && (
-                                         <div>
-                                           <p className="text-[9px] font-bold uppercase tracking-wider text-red-500 mb-0.5">Error / Stderr</p>
-                                           <pre className="text-[10px] text-red-400 whitespace-pre-wrap">{result.stderr.trim()}</pre>
-                                         </div>
-                                       )}
-                                     </div>
-                                   </div>
-                                 ))}
-                               </div>
-                             ) : (
-                               <span className="text-slate-500">Click &quot;Run Tests&quot; to evaluate your code against test cases.</span>
-                             )
-                           )}
+                             ) : null}
                          </div>
                        </div>
                      )}

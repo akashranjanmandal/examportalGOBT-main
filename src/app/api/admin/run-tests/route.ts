@@ -30,9 +30,9 @@ export async function POST(req: NextRequest) {
       .eq("id", question_id)
       .single();
 
-    const testCases: Array<{ input: string; expected_output: string; is_hidden: boolean }> =
+    const testCases: Array<{ input: string; expected_output: any; is_hidden: boolean }> =
       (question?.test_cases || []).map((tc: any) => ({
-        input: tc.input ?? "",
+        input: typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input),
         expected_output: tc.expected_output ?? tc.output ?? "",
         is_hidden: tc.is_hidden ?? false,
       }));
@@ -53,9 +53,19 @@ export async function POST(req: NextRequest) {
             result = await runCode(language, wrappedCode, tc.input || "");
           }
           
-          const actual = result.stdout.trim().toLowerCase();
-          const expected = String(tc.expected_output ?? "").trim().toLowerCase();
-          const passed = actual === expected;
+          const actual = result.stdout.trim();
+          const expectedRaw = tc.expected_output;
+          const expectedStr = typeof expectedRaw === "string"
+            ? expectedRaw.trim()
+            : JSON.stringify(expectedRaw);
+
+          // Normalize JSON for comparison (handles spacing differences)
+          let passed = actual === expectedStr;
+          if (!passed) {
+            try {
+              passed = JSON.stringify(JSON.parse(actual)) === JSON.stringify(JSON.parse(expectedStr));
+            } catch {}
+          }
           
           return { 
             index: idx, 

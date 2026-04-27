@@ -21,7 +21,7 @@ if __name__ == "__main__":
             if func:
                 result = func(input_data)
                 if result is not None:
-                    print(json.dumps(result))
+                    print(json.dumps(result, separators=(',', ':')))
     except Exception as e:
         sys.stderr.write(f"Runtime Error: {str(e)}\\n")
         sys.exit(1)

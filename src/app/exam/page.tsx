@@ -64,6 +64,7 @@ export default function ExamPage() {
   const [tabWarnings, setTabWarnings] = useState(0);
   const [maxTabSwitches, setMaxTabSwitches] = useState(3);
   const [showWarning, setShowWarning] = useState(false);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [warningMsg, setWarningMsg] = useState("");
   const [examStartTime] = useState(Date.now());
   const autoSaveRef = useRef<NodeJS.Timeout>();
@@ -344,7 +345,7 @@ export default function ExamPage() {
                  </div>
               </div>
            </div>
-           <button onClick={() => submitExam(false)} disabled={submitting} className="px-6 py-2.5 rounded-xl bg-blue-600 text-white text-[11px] font-bold uppercase tracking-wider hover:bg-blue-700 shadow-md shadow-blue-100 transition-all flex items-center gap-2">
+           <button onClick={() => setShowSubmitConfirm(true)} disabled={submitting} className="px-6 py-2.5 rounded-xl bg-blue-600 text-white text-[11px] font-bold uppercase tracking-wider hover:bg-blue-700 shadow-md shadow-blue-100 transition-all flex items-center gap-2">
               {submitting ? 'Finalizing...' : 'Conclude Assessment'}
               <ChevronRight className="w-3.5 h-3.5" />
            </button>
@@ -709,6 +710,36 @@ export default function ExamPage() {
               {currentMCQ < mcqQuestions.length - 1 ? "Next" : "Go to Coding"}
               <ChevronRight className="w-4 h-4" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {showSubmitConfirm && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-10 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-300">
+            <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mb-8 mx-auto">
+               <AlertTriangle className="w-10 h-10 text-blue-600" />
+            </div>
+            <h3 className="text-2xl font-bold text-slate-900 text-center mb-4 font-display">Finalize Assessment?</h3>
+            <p className="text-slate-500 text-center text-sm leading-relaxed mb-10 px-4">
+              You are about to conclude your assessment. This action is irreversible and your responses will be encrypted and transmitted for evaluation.
+            </p>
+            <div className="flex flex-col gap-3">
+               <button 
+                 onClick={() => {
+                   setShowSubmitConfirm(false);
+                   submitExam(false);
+                 }}
+                 className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold text-sm uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-200">
+                 Confirm Submission
+               </button>
+               <button 
+                 onClick={() => setShowSubmitConfirm(false)}
+                 className="w-full py-4 rounded-2xl bg-slate-50 text-slate-400 font-bold text-sm uppercase tracking-widest hover:bg-slate-100 transition-all">
+                 Continue Working
+               </button>
+            </div>
           </div>
         </div>
       )}

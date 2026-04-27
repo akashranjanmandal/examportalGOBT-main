@@ -98,9 +98,9 @@ export async function sendVerificationStatusEmail(params: {
       ? `<p>We are pleased to inform you that you have successfully cleared the GOBT Developer Assessment.${marks !== undefined ? ` Your total score is <strong>${marks} points</strong>.` : ''}</p>
          <p>Our team will be in touch with you shortly regarding the next steps.</p>`
       : isSubmitted
-      ? `<p>Thank you for appearing in the GOBT Developer Assessment. We have received your submission.${marks !== undefined ? ` Your total score is <strong>${marks} points</strong>.` : ''}</p>
+        ? `<p>Thank you for appearing in the GOBT Developer Assessment. We have received your submission.${marks !== undefined ? ` Your total score is <strong>${marks} points</strong>.` : ''}</p>
          <p>Our team is currently reviewing your performance and will get back to you soon with the results.</p>`
-      : `<p>Thank you for appearing in the GOBT Developer Assessment.</p>
+        : `<p>Thank you for appearing in the GOBT Developer Assessment.</p>
          <p>After reviewing your submission, we regret to inform you that we will not be moving forward at this time. We appreciate the effort you put in and encourage you to apply for future opportunities.</p>`
     }
     <p class="sign-off">Regards,<br/>GOBT Team</p>
@@ -135,6 +135,7 @@ export async function sendExamReminderEmail(params: {
     <p class="name">Dear ${name},</p>
     <p>This is a reminder that your GOBT Developer Assessment is scheduled for <strong>${examDate}</strong> at <strong>${examTime}</strong>.</p>
     <p>Please log in to <strong>exam.gobt.in</strong> using your registered email and access code at the scheduled time. Use a desktop or laptop with Google Chrome.</p>
+    <p><b>Note:<b>Make sure have Python/Java installed in your laptop<p>
     <p class="sign-off">Regards,<br/>GOBT Team</p>
   </div>
 </div>

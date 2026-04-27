@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabase";
 import { runCode } from "@/lib/codeRunner";
-import { runViaPiston } from "@/lib/piston";
 import { wrapCode } from "@/lib/judge";
 
 export const maxDuration = 60;
@@ -62,12 +61,9 @@ export async function POST(req: NextRequest) {
       testCases.map(async (tc, idx) => {
         try {
           let result;
-          if (process.env.PISTON_API_URL) {
-            result = await runViaPiston(language, wrappedCode, tc.input || "");
-          } else {
-            result = await runCode(language, wrappedCode, tc.input || "");
-          }
-          
+          result = await runCode(language, wrappedCode, tc.input || "");
+
+
           const actual = result.stdout.trim();
           const expectedRaw = tc.expected_output;
           const expectedStr = typeof expectedRaw === "string"
@@ -79,25 +75,25 @@ export async function POST(req: NextRequest) {
           if (!passed) {
             try {
               passed = normalizeOutput(JSON.parse(actual)) === normalizeOutput(JSON.parse(expectedStr));
-            } catch {}
+            } catch { }
           }
-          
-          return { 
-            index: idx, 
-            passed, 
-            stdout: result.stdout, 
-            stderr: result.stderr, 
-            expected: tc.expected_output ?? "", 
-            is_hidden: tc.is_hidden 
+
+          return {
+            index: idx,
+            passed,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            expected: tc.expected_output ?? "",
+            is_hidden: tc.is_hidden
           };
         } catch (e: any) {
-          return { 
-            index: idx, 
-            passed: false, 
-            stdout: "", 
-            stderr: e?.message || "Execution failed", 
-            expected: tc.expected_output ?? "", 
-            is_hidden: tc.is_hidden 
+          return {
+            index: idx,
+            passed: false,
+            stdout: "",
+            stderr: e?.message || "Execution failed",
+            expected: tc.expected_output ?? "",
+            is_hidden: tc.is_hidden
           };
         }
       })

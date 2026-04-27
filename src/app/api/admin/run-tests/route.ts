@@ -20,6 +20,24 @@ function normalizeOutput(value: any): string {
   return JSON.stringify(value);
 }
 
+// Robust comparison for List of Lists (handles missing quotes, spaces, and different orders)
+function cleanAndSort(str: string): string {
+  // 1. Remove all quotes, spaces, and newlines. Convert to lowercase.
+  const clean = str.replace(/["'\s\r\n]/g, "").toLowerCase();
+  // 2. Extract groups (content inside brackets)
+  // This handles nested structures like [[a,b],[c]]
+  const groups = clean.match(/\[([^\[\]]+)\]/g) || [];
+  if (groups.length === 0) return clean; // Fallback for simple strings
+
+  // 3. Sort items inside each group, then sort the groups themselves
+  const sortedGroups = groups.map(g => {
+    const items = g.replace(/[\[\]]/g, "").split(",");
+    return "[" + items.sort().join(",") + "]";
+  }).sort();
+  
+  return sortedGroups.join(",");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get("Authorization");
@@ -57,47 +75,52 @@ export async function POST(req: NextRequest) {
 
     const wrappedCode = wrapCode(language, code);
 
-    const results = await Promise.all(
-      testCases.map(async (tc, idx) => {
-        try {
-          let result;
-          result = await runCode(language, wrappedCode, tc.input || "");
+    const results = [];
+    for (let i = 0; i < testCases.length; i++) {
+      const tc = testCases[i];
+      try {
+        const result = await runCode(language, wrappedCode, tc.input || "");
+        
+        const actual = result.stdout.trim();
+        const expectedRaw = tc.expected_output;
+        const expectedStr = typeof expectedRaw === "string"
+          ? expectedRaw.trim()
+          : JSON.stringify(expectedRaw);
 
-
-          const actual = result.stdout.trim();
-          const expectedRaw = tc.expected_output;
-          const expectedStr = typeof expectedRaw === "string"
-            ? expectedRaw.trim()
-            : JSON.stringify(expectedRaw);
-
-          // Normalize JSON for comparison (handles spacing and ordering differences)
-          let passed = actual === expectedStr;
-          if (!passed) {
-            try {
-              passed = normalizeOutput(JSON.parse(actual)) === normalizeOutput(JSON.parse(expectedStr));
-            } catch { }
-          }
-
-          return {
-            index: idx,
-            passed,
-            stdout: result.stdout,
-            stderr: result.stderr,
-            expected: tc.expected_output ?? "",
-            is_hidden: tc.is_hidden
-          };
-        } catch (e: any) {
-          return {
-            index: idx,
-            passed: false,
-            stdout: "",
-            stderr: e?.message || "Execution failed",
-            expected: tc.expected_output ?? "",
-            is_hidden: tc.is_hidden
-          };
+        // 1. Try exact match first
+        let passed = actual === expectedStr;
+        
+        // 2. Try normalized comparison (handles formatting and order)
+        if (!passed) {
+          passed = cleanAndSort(actual) === cleanAndSort(expectedStr);
         }
-      })
-    );
+
+        // 3. Fallback to JSON normalization if possible
+        if (!passed) {
+          try {
+            passed = normalizeOutput(JSON.parse(actual)) === normalizeOutput(JSON.parse(expectedStr));
+          } catch { }
+        }
+
+        results.push({
+          index: i,
+          passed,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          expected: typeof tc.expected_output === "string" ? tc.expected_output : JSON.stringify(tc.expected_output, null, 2),
+          is_hidden: tc.is_hidden
+        });
+      } catch (e: any) {
+        results.push({
+          index: i,
+          passed: false,
+          stdout: "",
+          stderr: e?.message || "Execution failed",
+          expected: typeof tc.expected_output === "string" ? tc.expected_output : JSON.stringify(tc.expected_output, null, 2),
+          is_hidden: tc.is_hidden
+        });
+      }
+    }
 
     return NextResponse.json({ test_results: results });
   } catch (err: any) {
